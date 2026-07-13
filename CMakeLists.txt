@@ -111,3 +111,22 @@ set_target_properties(
     PROPERTIES
     OUTPUT_NAME "gstsimplevideosrc"
 )
+
+add_library(
+    gstgrayfilter
+    SHARED
+    src/grayfilter.cpp
+)
+
+target_link_libraries(
+    gstgrayfilter
+    PRIVATE
+    PkgConfig::GST
+    PkgConfig::OPENCV
+)
+
+set_target_properties(
+    gstgrayfilter
+    PROPERTIES
+    OUTPUT_NAME "gstgrayfilter"
+)

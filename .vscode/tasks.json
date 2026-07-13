@@ -152,6 +152,7 @@
                 "metaattach",
                 "metaprint",
                 "simplevideosrc",
+                "grayfilter",
                 "opencvfilter"
             ],
             "default": "minimalfilter"
