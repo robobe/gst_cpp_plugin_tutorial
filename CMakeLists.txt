@@ -57,3 +57,39 @@ set_target_properties(
     PROPERTIES
     OUTPUT_NAME "gstpropertyfilter"
 )
+
+add_library(
+    gstmetaattach
+    SHARED
+    src/metaattach.cpp
+)
+
+target_link_libraries(
+    gstmetaattach
+    PRIVATE
+    PkgConfig::GST
+)
+
+set_target_properties(
+    gstmetaattach
+    PROPERTIES
+    OUTPUT_NAME "gstmetaattach"
+)
+
+add_library(
+    gstmetaprint
+    SHARED
+    src/metaprint.cpp
+)
+
+target_link_libraries(
+    gstmetaprint
+    PRIVATE
+    PkgConfig::GST
+)
+
+set_target_properties(
+    gstmetaprint
+    PROPERTIES
+    OUTPUT_NAME "gstmetaprint"
+)

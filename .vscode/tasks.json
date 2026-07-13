@@ -149,6 +149,8 @@
             "options": [
                 "minimalfilter",
                 "propertyfilter",
+                "metaattach",
+                "metaprint",
                 "opencvfilter"
             ],
             "default": "minimalfilter"

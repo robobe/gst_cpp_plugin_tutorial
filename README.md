@@ -32,6 +32,12 @@ buffer pts: 0:00:00.000000000
 GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 videotestsrc num-buffers=3 ! video/x-raw ! propertyfilter print-pts=false ! fakesink
 ```
 
+## Metadata Example
+
+```sh
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 videotestsrc num-buffers=3 ! video/x-raw ! metaattach ! metaprint ! fakesink
+```
+
 ## Read Next
 
 See [docs/plugin-building-blocks.md](docs/plugin-building-blocks.md) for a
@@ -39,3 +45,6 @@ developer-focused explanation of the GStreamer concepts used by this plugin.
 
 See [docs/property-mechanism.md](docs/property-mechanism.md) for the property
 example.
+
+See [docs/metadata-mechanism.md](docs/metadata-mechanism.md) for the metadata
+attach/read example.
