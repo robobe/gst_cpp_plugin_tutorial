@@ -40,3 +40,20 @@ set_target_properties(
     OUTPUT_NAME "gstminimalfilter"
 )
 
+add_library(
+    gstpropertyfilter
+    SHARED
+    src/propertyfilter.cpp
+)
+
+target_link_libraries(
+    gstpropertyfilter
+    PRIVATE
+    PkgConfig::GST
+)
+
+set_target_properties(
+    gstpropertyfilter
+    PROPERTIES
+    OUTPUT_NAME "gstpropertyfilter"
+)

@@ -51,45 +51,11 @@
             "problemMatcher": []
         },
         {
-            "label": "GStreamer: Inspect minimalfilter",
+            "label": "GStreamer: Inspect plugin",
             "type": "shell",
             "command": "gst-inspect-1.0",
             "args": [
-                "minimalfilter"
-            ],
-            "options": {
-                "env": {
-                    "GST_PLUGIN_PATH": "${workspaceFolder}/build"
-                }
-            },
-            "dependsOn": [
-                "CMake: Build"
-            ],
-            "problemMatcher": []
-        },
-        {
-            "label": "GStreamer: Inspect opencvfilter",
-            "type": "shell",
-            "command": "gst-inspect-1.0",
-            "args": [
-                "opencvfilter"
-            ],
-            "options": {
-                "env": {
-                    "GST_PLUGIN_PATH": "${workspaceFolder}/build"
-                }
-            },
-            "dependsOn": [
-                "CMake: Build"
-            ],
-            "problemMatcher": []
-        },
-        {
-            "label": "GStreamer: Inspect propertyfilter",
-            "type": "shell",
-            "command": "gst-inspect-1.0",
-            "args": [
-                "propertyfilter"
+                "${input:pluginToInspect}"
             ],
             "options": {
                 "env": {
@@ -173,6 +139,19 @@
                 "CMake: Build"
             ],
             "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "pluginToInspect",
+            "type": "pickString",
+            "description": "Select a GStreamer plugin to inspect",
+            "options": [
+                "minimalfilter",
+                "propertyfilter",
+                "opencvfilter"
+            ],
+            "default": "minimalfilter"
         }
     ]
 }
