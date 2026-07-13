@@ -93,3 +93,21 @@ set_target_properties(
     PROPERTIES
     OUTPUT_NAME "gstmetaprint"
 )
+
+add_library(
+    gstsimplevideosrc
+    SHARED
+    src/simplevideosrc.cpp
+)
+
+target_link_libraries(
+    gstsimplevideosrc
+    PRIVATE
+    PkgConfig::GST
+)
+
+set_target_properties(
+    gstsimplevideosrc
+    PROPERTIES
+    OUTPUT_NAME "gstsimplevideosrc"
+)

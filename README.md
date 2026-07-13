@@ -38,6 +38,12 @@ GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 videotestsrc num-buffers=3 ! video/x
 GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 videotestsrc num-buffers=3 ! video/x-raw ! metaattach ! metaprint ! fakesink
 ```
 
+## Video Source Example
+
+```sh
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 simplevideosrc num-buffers=5 ! fakesink
+```
+
 ## Read Next
 
 See [docs/plugin-building-blocks.md](docs/plugin-building-blocks.md) for a
@@ -48,3 +54,6 @@ example.
 
 See [docs/metadata-mechanism.md](docs/metadata-mechanism.md) for the metadata
 attach/read example.
+
+See [docs/video-source-plugin.md](docs/video-source-plugin.md) for the generated
+video source example.
