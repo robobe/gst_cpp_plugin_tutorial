@@ -130,3 +130,40 @@ set_target_properties(
     PROPERTIES
     OUTPUT_NAME "gstgrayfilter"
 )
+
+add_library(
+    gstcolorboxsrc
+    SHARED
+    src/colorboxsrc.cpp
+)
+
+target_link_libraries(
+    gstcolorboxsrc
+    PRIVATE
+    PkgConfig::GST
+)
+
+set_target_properties(
+    gstcolorboxsrc
+    PROPERTIES
+    OUTPUT_NAME "gstcolorboxsrc"
+)
+
+add_library(
+    gstreddetect
+    SHARED
+    src/reddetect.cpp
+)
+
+target_link_libraries(
+    gstreddetect
+    PRIVATE
+    PkgConfig::GST
+    PkgConfig::OPENCV
+)
+
+set_target_properties(
+    gstreddetect
+    PROPERTIES
+    OUTPUT_NAME "gstreddetect"
+)

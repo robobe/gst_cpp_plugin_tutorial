@@ -44,6 +44,54 @@ GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 videotestsrc num-buffers=3 ! video/x
 GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 simplevideosrc num-buffers=5 ! fakesink
 ```
 
+## Capstone Color Box Source Example
+
+```sh
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 colorboxsrc ! videoconvert ! autovideosink
+```
+
+```sh
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 colorboxsrc box-red=0 box-green=255 box-blue=0 ! videoconvert ! autovideosink
+```
+
+## Capstone Red Detection Filter Example
+
+```sh
+GST_PLUGIN_PATH="$PWD/build" gst-inspect-1.0 reddetect
+```
+
+```sh
+GST_DEBUG=reddetect:6 GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 colorboxsrc num-buffers=5 ! reddetect low-h=0 high-h=10 ! fakesink
+```
+
+## Capstone Metadata Verification Example
+
+```sh
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 colorboxsrc num-buffers=5 ! reddetect ! metaprint ! fakesink
+```
+
+```sh
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 colorboxsrc num-buffers=3 ! reddetect low-h=60 high-h=70 ! metaprint ! fakesink
+```
+
+## Capstone Split Pipeline Example
+
+```sh
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 colorboxsrc ! reddetect ! tee name=t t. ! queue ! videoconvert ! autovideosink t. ! queue ! fakesink
+```
+
+## Capstone Python App
+
+```sh
+python3 apps/run_capstone.py
+```
+
+Headless test:
+
+```sh
+python3 apps/run_capstone.py --no-display --num-buffers 5
+```
+
 ## OpenCV Gray Filter Example
 
 ```sh

@@ -6,6 +6,7 @@
 #endif
 
 static constexpr const char* kMetaName = "GstTutorialMeta";
+static constexpr const char* kDetectionMetaName = "GstRedDetectionMeta";
 
 typedef struct _GstMetaPrint {
     GstBaseTransform parent;
@@ -46,10 +47,83 @@ static void ensure_tutorial_meta_registered()
     }
 }
 
+static void ensure_detection_meta_registered()
+{
+    if (gst_meta_get_info(kDetectionMetaName) == nullptr) {
+        gst_meta_register_custom_simple(kDetectionMetaName);
+    }
+}
+
+static gboolean print_detection_meta(GstBuffer* buffer)
+{
+    ensure_detection_meta_registered();
+
+    GstCustomMeta* meta =
+        gst_buffer_get_custom_meta(buffer, kDetectionMetaName);
+
+    if (meta == nullptr) {
+        return FALSE;
+    }
+
+    GstStructure* structure =
+        gst_custom_meta_get_structure(meta);
+
+    gboolean found = FALSE;
+    gint x = 0;
+    gint y = 0;
+    gint width = 0;
+    gint height = 0;
+
+    gst_structure_get_boolean(
+        structure,
+        "found",
+        &found
+    );
+
+    gst_structure_get_int(
+        structure,
+        "x",
+        &x
+    );
+
+    gst_structure_get_int(
+        structure,
+        "y",
+        &y
+    );
+
+    gst_structure_get_int(
+        structure,
+        "width",
+        &width
+    );
+
+    gst_structure_get_int(
+        structure,
+        "height",
+        &height
+    );
+
+    g_print(
+        "metaprint: found=%s x=%d y=%d width=%d height=%d\n",
+        found ? "true" : "false",
+        x,
+        y,
+        width,
+        height
+    );
+
+    return TRUE;
+}
+
 static GstFlowReturn gst_meta_print_transform_ip(
     GstBaseTransform* base,
     GstBuffer* buffer)
 {
+    if (print_detection_meta(buffer)) {
+        return GST_FLOW_OK;
+    }
+
     ensure_tutorial_meta_registered();
 
     GstCustomMeta* meta =
@@ -156,6 +230,7 @@ static void gst_meta_print_init(
 static gboolean plugin_init(GstPlugin* plugin)
 {
     ensure_tutorial_meta_registered();
+    ensure_detection_meta_registered();
 
     return gst_element_register(
         plugin,

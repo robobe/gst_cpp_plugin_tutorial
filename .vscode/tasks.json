@@ -152,6 +152,7 @@
                 "metaattach",
                 "metaprint",
                 "simplevideosrc",
+                "colorboxsrc",
                 "grayfilter",
                 "opencvfilter"
             ],
