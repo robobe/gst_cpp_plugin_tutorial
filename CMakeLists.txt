@@ -167,3 +167,22 @@ set_target_properties(
     PROPERTIES
     OUTPUT_NAME "gstreddetect"
 )
+
+add_library(
+    gstcontrolledreddetect
+    SHARED
+    src/controlledreddetect.cpp
+)
+
+target_link_libraries(
+    gstcontrolledreddetect
+    PRIVATE
+    PkgConfig::GST
+    PkgConfig::OPENCV
+)
+
+set_target_properties(
+    gstcontrolledreddetect
+    PROPERTIES
+    OUTPUT_NAME "gstcontrolledreddetect"
+)

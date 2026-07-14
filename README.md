@@ -92,6 +92,40 @@ Headless test:
 python3 apps/run_capstone.py --no-display --num-buffers 5
 ```
 
+## Bridge Controlled Detector Example
+
+```sh
+GST_PLUGIN_PATH="$PWD/build" gst-inspect-1.0 controlledreddetect
+```
+
+```sh
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 colorboxsrc num-buffers=3 ! controlledreddetect detection-enabled=true ! metaprint ! fakesink
+```
+
+```sh
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 colorboxsrc num-buffers=3 ! controlledreddetect detection-enabled=false ! metaprint ! fakesink
+```
+
+## Bridge App
+
+Python dependencies:
+
+```sh
+python3 -m pip install -r apps/bridge_project/requirements.txt
+```
+
+Headless bridge test:
+
+```sh
+python3 apps/run_bridge.py --no-display --num-buffers 5
+```
+
+Bridge GUI:
+
+```sh
+python3 apps/run_bridge_gui.py
+```
+
 ## OpenCV Gray Filter Example
 
 ```sh
