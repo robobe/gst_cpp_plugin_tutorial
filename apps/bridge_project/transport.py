@@ -4,6 +4,7 @@ import threading
 import zmq
 
 from .messages import MessageError, decode_command, encode_message
+from .queues import offer_latest
 
 
 LOGGER = logging.getLogger(__name__)
@@ -19,35 +20,43 @@ class ZmqBridgeTransport:
         self.command_thread = None
         self.running = threading.Event()
 
-    def start(self, command_handler):
-        self.telemetry_socket = self.context.socket(zmq.PUB)
-        self.telemetry_socket.setsockopt(zmq.LINGER, 0)
-        self.telemetry_socket.setsockopt(zmq.SNDHWM, 1)
-        self.telemetry_socket.bind(self.telemetry_endpoint)
+    def start(self, command_queue):
+        try:
+            self.telemetry_socket = self.context.socket(zmq.PUB)
+            self.telemetry_socket.setsockopt(zmq.LINGER, 0)
+            self.telemetry_socket.setsockopt(zmq.SNDHWM, 1)
+            self.telemetry_socket.bind(self.telemetry_endpoint)
 
-        self.command_socket = self.context.socket(zmq.SUB)
-        self.command_socket.setsockopt(zmq.LINGER, 0)
-        self.command_socket.setsockopt(zmq.RCVHWM, 10)
-        self.command_socket.setsockopt(zmq.SUBSCRIBE, b"")
-        self.command_socket.bind(self.command_endpoint)
+            self.command_socket = self.context.socket(zmq.SUB)
+            self.command_socket.setsockopt(zmq.LINGER, 0)
+            self.command_socket.setsockopt(zmq.RCVHWM, 10)
+            self.command_socket.setsockopt(zmq.SUBSCRIBE, b"")
+            self.command_socket.bind(self.command_endpoint)
 
-        self.running.set()
-        self.command_thread = threading.Thread(
-            target=self._command_loop,
-            args=(command_handler,),
-            name="bridge-command-subscriber",
-            daemon=True,
-        )
-        self.command_thread.start()
+            self.running.set()
+            self.command_thread = threading.Thread(
+                target=self._command_loop,
+                args=(command_queue,),
+                name="bridge-command-subscriber",
+                daemon=True,
+            )
+            self.command_thread.start()
+        except Exception:
+            self.stop()
+            raise
 
     def publish(self, message):
         if self.telemetry_socket is None:
-            return
+            return False
 
-        self.telemetry_socket.send(
-            encode_message(message),
-            flags=zmq.NOBLOCK,
-        )
+        try:
+            self.telemetry_socket.send(
+                encode_message(message),
+                flags=zmq.NOBLOCK,
+            )
+            return True
+        except zmq.Again:
+            return False
 
     def stop(self):
         self.running.clear()
@@ -64,7 +73,7 @@ class ZmqBridgeTransport:
             self.command_thread.join(timeout=1.0)
             self.command_thread = None
 
-    def _command_loop(self, command_handler):
+    def _command_loop(self, command_queue):
         poller = zmq.Poller()
         poller.register(self.command_socket, zmq.POLLIN)
 
@@ -88,4 +97,5 @@ class ZmqBridgeTransport:
             except zmq.ZMQError:
                 return
 
-            command_handler(command)
+            if not offer_latest(command_queue, command):
+                LOGGER.warning("dropping command because command queue is full")

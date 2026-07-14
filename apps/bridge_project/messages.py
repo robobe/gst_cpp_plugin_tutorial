@@ -95,6 +95,33 @@ def decode_command(payload):
     raise MessageError(f"unknown command type: {command_type}")
 
 
+def decode_detection_message(payload):
+    return parse_detection_message(decode_message(payload))
+
+
+def parse_detection_message(data):
+    message_type = data.get("type")
+    if message_type != "detection":
+        raise MessageError(f"unexpected message type: {message_type}")
+
+    return DetectionMessage(
+        frame=_read_int(data, "frame"),
+        timestamp_ns=_read_int(data, "timestamp_ns"),
+        found=_read_bool(data, "found"),
+        x=_read_int(data, "x"),
+        y=_read_int(data, "y"),
+        width=_read_int(data, "width"),
+        height=_read_int(data, "height"),
+    )
+
+
+def _read_bool(data, name):
+    value = data.get(name)
+    if not isinstance(value, bool):
+        raise MessageError(f"{name} must be a boolean")
+    return value
+
+
 def _read_int(data, name):
     value = data.get(name)
     if not isinstance(value, int) or isinstance(value, bool):

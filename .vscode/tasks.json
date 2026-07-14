@@ -139,6 +139,84 @@
                 "CMake: Build"
             ],
             "problemMatcher": []
+        },
+        {
+            "label": "Bridge: Setup Python environment",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "-lc",
+                "python3 -m venv --system-site-packages .venv && .venv/bin/python -m pip install -r apps/bridge_project/requirements.txt"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [],
+            "presentation": {
+                "panel": "dedicated",
+                "clear": true
+            }
+        },
+        {
+            "label": "Bridge: Run pipeline",
+            "type": "shell",
+            "command": "${workspaceFolder}/.venv/bin/python",
+            "args": [
+                "${workspaceFolder}/apps/run_bridge.py"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "GST_PLUGIN_PATH": "${workspaceFolder}/build"
+                }
+            },
+            "dependsOn": [
+                "CMake: Build",
+                "Bridge: Setup Python environment"
+            ],
+            "dependsOrder": "sequence",
+            "isBackground": true,
+            "problemMatcher": [],
+            "presentation": {
+                "panel": "dedicated",
+                "clear": true,
+                "group": "bridge"
+            }
+        },
+        {
+            "label": "Bridge: Run GUI",
+            "type": "shell",
+            "command": "${workspaceFolder}/.venv/bin/python",
+            "args": [
+                "${workspaceFolder}/apps/run_bridge_gui.py"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": [
+                "Bridge: Setup Python environment"
+            ],
+            "isBackground": true,
+            "problemMatcher": [],
+            "presentation": {
+                "panel": "dedicated",
+                "clear": true,
+                "group": "bridge"
+            }
+        },
+        {
+            "label": "Bridge: Run project",
+            "dependsOn": [
+                "Bridge: Run pipeline",
+                "Bridge: Run GUI"
+            ],
+            "dependsOrder": "parallel",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "problemMatcher": []
         }
     ],
     "inputs": [
@@ -154,6 +232,8 @@
                 "simplevideosrc",
                 "colorboxsrc",
                 "grayfilter",
+                "reddetect",
+                "controlledreddetect",
                 "opencvfilter"
             ],
             "default": "minimalfilter"

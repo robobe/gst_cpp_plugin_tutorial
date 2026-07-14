@@ -1,5 +1,6 @@
 import os
 import queue
+import logging
 import sys
 from pathlib import Path
 
@@ -13,9 +14,11 @@ from .messages import (
     SetDetectionEnabledCommand,
     SetHsvThresholdsCommand,
 )
+from .queues import offer_latest
 
 
 DETECTION_META_NAME = "GstRedDetectionMeta"
+LOGGER = logging.getLogger(__name__)
 
 
 def default_plugin_path():
@@ -30,13 +33,15 @@ def structure_value(structure, name, default):
 
 
 class BridgePipeline:
-    def __init__(self, args, detection_queue):
+    def __init__(self, args, detection_queue, command_queue):
         self.args = args
         self.detection_queue = detection_queue
+        self.command_queue = command_queue
         self.frame = 0
         self.loop = GLib.MainLoop()
         self.pipeline = None
         self.detector = None
+        self.command_poller_id = None
 
     def build(self):
         sink = "fakesink sync=false" if self.args.no_display else "autovideosink"
@@ -78,6 +83,7 @@ class BridgePipeline:
 
     def run(self):
         self.build()
+        self.start_command_poller()
         self.pipeline.set_state(Gst.State.PLAYING)
 
         try:
@@ -88,16 +94,32 @@ class BridgePipeline:
             self.stop()
 
     def stop(self):
+        if self.command_poller_id is not None:
+            GLib.source_remove(self.command_poller_id)
+            self.command_poller_id = None
+
         if self.pipeline is not None:
             self.pipeline.set_state(Gst.State.NULL)
 
-    def submit_command(self, command):
-        GLib.idle_add(self.apply_command, command)
+    def start_command_poller(self):
+        self.command_poller_id = GLib.timeout_add(50, self.drain_commands)
+
+    def drain_commands(self):
+        while True:
+            try:
+                command = self.command_queue.get_nowait()
+            except queue.Empty:
+                return GLib.SOURCE_CONTINUE
+
+            try:
+                self.apply_command(command)
+            except Exception:
+                LOGGER.exception("failed to apply command")
 
     def apply_command(self, command):
         if isinstance(command, SetDetectionEnabledCommand):
             self.detector.set_property("detection-enabled", command.enabled)
-            return GLib.SOURCE_REMOVE
+            return
 
         if isinstance(command, SetHsvThresholdsCommand):
             self.detector.set_property("low-h", command.low_h)
@@ -106,9 +128,9 @@ class BridgePipeline:
             self.detector.set_property("high-h", command.high_h)
             self.detector.set_property("high-s", command.high_s)
             self.detector.set_property("high-v", command.high_v)
-            return GLib.SOURCE_REMOVE
+            return
 
-        return GLib.SOURCE_REMOVE
+        LOGGER.warning("ignoring unsupported command: %r", command)
 
     def on_new_sample(self, appsink):
         sample = appsink.emit("pull-sample")
@@ -149,21 +171,7 @@ class BridgePipeline:
         )
 
     def offer_detection(self, message):
-        try:
-            self.detection_queue.put_nowait(message)
-            return
-        except queue.Full:
-            pass
-
-        try:
-            self.detection_queue.get_nowait()
-        except queue.Empty:
-            pass
-
-        try:
-            self.detection_queue.put_nowait(message)
-        except queue.Full:
-            pass
+        offer_latest(self.detection_queue, message)
 
     def on_bus_message(self, bus, message):
         if message.type == Gst.MessageType.ERROR:

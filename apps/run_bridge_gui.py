@@ -7,7 +7,11 @@ from tkinter import ttk
 
 import zmq
 
-from bridge_project.messages import MessageError, decode_message, encode_message
+from bridge_project.messages import (
+    MessageError,
+    decode_detection_message,
+    encode_message,
+)
 
 
 class BridgeGui:
@@ -121,30 +125,41 @@ class BridgeGui:
         )
 
     def send_command(self, command):
-        self.command_socket.send(encode_message(command), flags=zmq.NOBLOCK)
+        try:
+            self.command_socket.send(encode_message(command), flags=zmq.NOBLOCK)
+            self.status.set("command sent")
+        except zmq.Again:
+            self.status.set("command dropped: socket busy")
+        except (MessageError, zmq.ZMQError) as exc:
+            self.status.set(f"command failed: {exc}")
 
     def poll_telemetry(self):
+        telemetry_error = None
+
         while True:
             try:
-                message = decode_message(
+                message = decode_detection_message(
                     self.telemetry_socket.recv(flags=zmq.NOBLOCK)
                 )
             except zmq.Again:
                 break
             except MessageError as exc:
-                self.status.set(f"invalid telemetry: {exc}")
+                telemetry_error = f"invalid telemetry: {exc}"
                 break
-
-            if message.get("type") != "detection":
-                continue
+            except zmq.ZMQError as exc:
+                telemetry_error = f"telemetry socket error: {exc}"
+                break
 
             self.last_message_time = time.monotonic()
             self.result.set(
-                "frame={frame} found={found} x={x} y={y} "
-                "width={width} height={height}".format(**message)
+                f"frame={message.frame} found={message.found} "
+                f"x={message.x} y={message.y} "
+                f"width={message.width} height={message.height}"
             )
 
-        if time.monotonic() - self.last_message_time < 1.0:
+        if telemetry_error is not None:
+            self.status.set(telemetry_error)
+        elif time.monotonic() - self.last_message_time < 1.0:
             self.status.set("bridge publishing")
         else:
             self.status.set("waiting for telemetry")
@@ -156,8 +171,11 @@ class BridgeGui:
         self.root.mainloop()
 
     def close(self):
-        self.command_socket.close(0)
-        self.telemetry_socket.close(0)
+        try:
+            self.command_socket.close(0)
+            self.telemetry_socket.close(0)
+        except zmq.ZMQError:
+            pass
         self.root.destroy()
 
 

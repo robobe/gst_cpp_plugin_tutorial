@@ -58,8 +58,9 @@ def main():
     init_gst()
 
     detection_queue = queue.Queue(maxsize=1)
+    command_queue = queue.Queue(maxsize=10)
     stop_event = threading.Event()
-    pipeline = BridgePipeline(args, detection_queue)
+    pipeline = BridgePipeline(args, detection_queue, command_queue)
     transport = ZmqBridgeTransport(
         command_endpoint=args.command_endpoint,
         telemetry_endpoint=args.telemetry_endpoint,
@@ -73,7 +74,7 @@ def main():
     )
 
     try:
-        transport.start(pipeline.submit_command)
+        transport.start(command_queue)
         publisher_thread.start()
         pipeline.run()
     finally:
