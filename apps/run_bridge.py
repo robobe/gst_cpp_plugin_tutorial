@@ -16,6 +16,7 @@ def publish_loop(detection_queue, transport, stop_event):
     while not stop_event.is_set():
         try:
             message = detection_queue.get(timeout=0.1)
+            LOGGER.info(message)
         except queue.Empty:
             continue
 
@@ -52,7 +53,10 @@ def parse_args():
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s: %(message)s",
+    )
     args = parse_args()
 
     init_gst()

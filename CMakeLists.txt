@@ -41,6 +41,24 @@ set_target_properties(
 )
 
 add_library(
+    gstminimalsrc
+    SHARED
+    src/minimalsrc.cpp
+)
+
+target_link_libraries(
+    gstminimalsrc
+    PRIVATE
+    PkgConfig::GST
+)
+
+set_target_properties(
+    gstminimalsrc
+    PROPERTIES
+    OUTPUT_NAME "gstminimalsrc"
+)
+
+add_library(
     gstpropertyfilter
     SHARED
     src/propertyfilter.cpp
@@ -110,6 +128,24 @@ set_target_properties(
     gstsimplevideosrc
     PROPERTIES
     OUTPUT_NAME "gstsimplevideosrc"
+)
+
+add_library(
+    gstislivesrc
+    SHARED
+    src/is_livesrc.cpp
+)
+
+target_link_libraries(
+    gstislivesrc
+    PRIVATE
+    PkgConfig::GST
+)
+
+set_target_properties(
+    gstislivesrc
+    PROPERTIES
+    OUTPUT_NAME "gstislivesrc"
 )
 
 add_library(

@@ -225,6 +225,28 @@ static GstFlowReturn gst_color_box_src_create(
     return GST_FLOW_OK;
 }
 
+static void gst_color_box_src_get_times(
+    GstBaseSrc* src,
+    GstBuffer* buffer,
+    GstClockTime* start,
+    GstClockTime* end)
+{
+    (void)src;
+
+    *start = GST_CLOCK_TIME_NONE;
+    *end = GST_CLOCK_TIME_NONE;
+
+    if (!GST_BUFFER_PTS_IS_VALID(buffer)) {
+        return;
+    }
+
+    *start = GST_BUFFER_PTS(buffer);
+
+    if (GST_BUFFER_DURATION_IS_VALID(buffer)) {
+        *end = *start + GST_BUFFER_DURATION(buffer);
+    }
+}
+
 static void gst_color_box_src_class_init(
     GstColorBoxSrcClass* klass)
 {
@@ -233,6 +255,9 @@ static void gst_color_box_src_class_init(
 
     GstElementClass* element_class =
         GST_ELEMENT_CLASS(klass);
+
+    GstBaseSrcClass* base_src_class =
+        GST_BASE_SRC_CLASS(klass);
 
     GstPushSrcClass* push_src_class =
         GST_PUSH_SRC_CLASS(klass);
@@ -295,6 +320,9 @@ static void gst_color_box_src_class_init(
         &src_template
     );
 
+    base_src_class->get_times =
+        GST_DEBUG_FUNCPTR(gst_color_box_src_get_times);
+
     push_src_class->create =
         GST_DEBUG_FUNCPTR(gst_color_box_src_create);
 }
@@ -314,7 +342,7 @@ static void gst_color_box_src_init(
 
     gst_base_src_set_live(
         GST_BASE_SRC(self),
-        FALSE
+        TRUE
     );
 }
 

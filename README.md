@@ -26,6 +26,12 @@ Expected output includes lines like:
 buffer pts: 0:00:00.000000000
 ```
 
+## Minimal Source Example
+
+```sh
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 minimalsrc num-buffers=5 ! fakesink
+```
+
 ## Property Example
 
 ```sh
@@ -42,6 +48,20 @@ GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 videotestsrc num-buffers=3 ! video/x
 
 ```sh
 GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 simplevideosrc num-buffers=5 ! fakesink
+```
+
+## Live Source Example
+
+Live and clock-paced at 30 fps:
+
+```sh
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 -v is_livesrc num-buffers=60 is-live=true ! identity silent=false ! fakesink sync=false
+```
+
+Non-live comparison, which finishes as fast as possible:
+
+```sh
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 -v is_livesrc num-buffers=60 is-live=false ! identity silent=false ! fakesink sync=false
 ```
 
 ## Capstone Color Box Source Example
@@ -134,6 +154,9 @@ GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 simplevideosrc ! grayfilter ! videoc
 
 ## Read Next
 
+See [docs/minimal-source-plugin.md](docs/minimal-source-plugin.md) for a small
+video source that generates timestamped black RGB frames.
+
 See [docs/plugin-building-blocks.md](docs/plugin-building-blocks.md) for a
 developer-focused explanation of the GStreamer concepts used by this plugin.
 
@@ -145,6 +168,9 @@ attach/read example.
 
 See [docs/video-source-plugin.md](docs/video-source-plugin.md) for the generated
 video source example.
+
+See [docs/live-source-plugin.md](docs/live-source-plugin.md) for the live source,
+`NO_PREROLL`, and clock-pacing example.
 
 See [docs/opencv-gray-filter.md](docs/opencv-gray-filter.md) for the OpenCV
 buffer mapping example.

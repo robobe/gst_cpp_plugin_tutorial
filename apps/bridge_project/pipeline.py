@@ -44,7 +44,7 @@ class BridgePipeline:
         self.command_poller_id = None
 
     def build(self):
-        sink = "fakesink sync=false" if self.args.no_display else "autovideosink"
+        sink = "fakesink sync=false" if self.args.no_display else "autovideosink sync=false"
         source_limits = (
             f"num-buffers={self.args.num_buffers}"
             if self.args.num_buffers > 0
