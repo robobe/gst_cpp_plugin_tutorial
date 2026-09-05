@@ -1,5 +1,6 @@
 #include <gst/gst.h>
 #include <gst/base/gstbasetransform.h>
+#include <gst/video/video.h>
 
 #ifndef PACKAGE
 #define PACKAGE "metaprint"
@@ -7,6 +8,16 @@
 
 static constexpr const char* kMetaName = "GstTutorialMeta";
 static constexpr const char* kDetectionMetaName = "GstRedDetectionMeta";
+
+static void register_custom_meta(const char* name)
+{
+#if GST_CHECK_VERSION(1, 24, 0)
+    gst_meta_register_custom_simple(name);
+#else
+    const gchar* tags[] = {nullptr};
+    gst_meta_register_custom(name, tags, nullptr, nullptr, nullptr);
+#endif
+}
 
 typedef struct _GstMetaPrint {
     GstBaseTransform parent;
@@ -43,14 +54,14 @@ static GstStaticPadTemplate src_template =
 static void ensure_tutorial_meta_registered()
 {
     if (gst_meta_get_info(kMetaName) == nullptr) {
-        gst_meta_register_custom_simple(kMetaName);
+        register_custom_meta(kMetaName);
     }
 }
 
 static void ensure_detection_meta_registered()
 {
     if (gst_meta_get_info(kDetectionMetaName) == nullptr) {
-        gst_meta_register_custom_simple(kDetectionMetaName);
+        register_custom_meta(kDetectionMetaName);
     }
 }
 
@@ -116,10 +127,66 @@ static gboolean print_detection_meta(GstBuffer* buffer)
     return TRUE;
 }
 
+static gboolean print_yolo_roi_meta(GstBuffer* buffer)
+{
+    gpointer state = nullptr;
+    gboolean found = FALSE;
+    GstMeta* meta = nullptr;
+    while ((meta = gst_buffer_iterate_meta_filtered(
+                buffer,
+                &state,
+                GST_VIDEO_REGION_OF_INTEREST_META_API_TYPE)) != nullptr) {
+        GstVideoRegionOfInterestMeta* roi =
+            reinterpret_cast<GstVideoRegionOfInterestMeta*>(meta);
+        GstStructure* parameters =
+            gst_video_region_of_interest_meta_get_param(roi, "yolo");
+        if (parameters == nullptr) {
+            continue;
+        }
+
+        gint class_id = 0;
+        gdouble confidence = 0.0;
+        gst_structure_get_int(parameters, "class-id", &class_id);
+        gst_structure_get_double(parameters, "confidence", &confidence);
+
+        const GstClockTime pts = GST_BUFFER_PTS(buffer);
+        if (GST_CLOCK_TIME_IS_VALID(pts)) {
+            g_print(
+                "metaprint: roi=%s class=%d confidence=%.6f x=%u y=%u width=%u height=%u pts=%" GST_TIME_FORMAT "\n",
+                g_quark_to_string(roi->roi_type),
+                class_id,
+                confidence,
+                roi->x,
+                roi->y,
+                roi->w,
+                roi->h,
+                GST_TIME_ARGS(pts)
+            );
+        } else {
+            g_print(
+                "metaprint: roi=%s class=%d confidence=%.6f x=%u y=%u width=%u height=%u pts=GST_CLOCK_TIME_NONE\n",
+                g_quark_to_string(roi->roi_type),
+                class_id,
+                confidence,
+                roi->x,
+                roi->y,
+                roi->w,
+                roi->h
+            );
+        }
+        found = TRUE;
+    }
+    return found;
+}
+
 static GstFlowReturn gst_meta_print_transform_ip(
     GstBaseTransform* base,
     GstBuffer* buffer)
 {
+    if (print_yolo_roi_meta(buffer)) {
+        return GST_FLOW_OK;
+    }
+
     if (print_detection_meta(buffer)) {
         return GST_FLOW_OK;
     }
@@ -195,7 +262,7 @@ static void gst_meta_print_class_init(
         element_class,
         "MetaPrint",
         "Filter/Metadata",
-        "Reads custom buffer metadata and prints it",
+        "Reads ROI or custom buffer metadata and prints it",
         "example"
     );
 
@@ -244,7 +311,7 @@ GST_PLUGIN_DEFINE(
     GST_VERSION_MAJOR,
     GST_VERSION_MINOR,
     metaprint,
-    "Plugin that reads and prints custom buffer metadata",
+    "Plugin that reads and prints ROI or custom buffer metadata",
     plugin_init,
     "1.0",
     "LGPL",

@@ -6,6 +6,40 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+set(DEFAULT_ONNXRUNTIME_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime-linux-x64-1.29.0")
+set(ONNXRUNTIME_ROOT "${DEFAULT_ONNXRUNTIME_ROOT}" CACHE PATH "ONNX Runtime directory")
+set(OLD_ONNXRUNTIME_ROOTS
+    "${CMAKE_CURRENT_SOURCE_DIR}/demos/onnxruntime-linux-x64-1.29.0"
+    "${CMAKE_CURRENT_SOURCE_DIR}/demos/ort_cpu_demo/onnxruntime-linux-x64-1.29.0"
+)
+if(NOT ONNXRUNTIME_ROOT OR ONNXRUNTIME_ROOT IN_LIST OLD_ONNXRUNTIME_ROOTS)
+    set(ONNXRUNTIME_ROOT "${DEFAULT_ONNXRUNTIME_ROOT}" CACHE PATH "ONNX Runtime directory" FORCE)
+endif()
+
+unset(ONNXRUNTIME_INCLUDE_DIR CACHE)
+unset(ONNXRUNTIME_LIBRARY CACHE)
+find_path(
+    ONNXRUNTIME_INCLUDE_DIR
+    onnxruntime_cxx_api.h
+    PATHS "${ONNXRUNTIME_ROOT}/include"
+    NO_DEFAULT_PATH
+    REQUIRED
+)
+find_library(
+    ONNXRUNTIME_LIBRARY
+    onnxruntime
+    PATHS "${ONNXRUNTIME_ROOT}/lib" "${ONNXRUNTIME_ROOT}/lib64"
+    NO_DEFAULT_PATH
+    REQUIRED
+)
+add_library(ONNXRuntime::ONNXRuntime SHARED IMPORTED)
+set_target_properties(
+    ONNXRuntime::ONNXRuntime
+    PROPERTIES
+    IMPORTED_LOCATION "${ONNXRUNTIME_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_INCLUDE_DIR}"
+)
+
 add_subdirectory(demos)
 
 find_package(PkgConfig REQUIRED)
@@ -223,4 +257,24 @@ set_target_properties(
     gstcontrolledreddetect
     PROPERTIES
     OUTPUT_NAME "gstcontrolledreddetect"
+)
+
+add_library(
+    gstyolodetect
+    SHARED
+    src/yolodetect.cpp
+)
+
+target_link_libraries(
+    gstyolodetect
+    PRIVATE
+    PkgConfig::GST
+    PkgConfig::OPENCV
+    ONNXRuntime::ONNXRuntime
+)
+
+set_target_properties(
+    gstyolodetect
+    PROPERTIES
+    OUTPUT_NAME "gstyolodetect"
 )

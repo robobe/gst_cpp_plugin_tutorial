@@ -1,4 +1,5 @@
 build/
+build-*/
 .venv/
 
 # CMake generated files

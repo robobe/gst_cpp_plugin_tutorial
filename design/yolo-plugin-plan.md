@@ -1,63 +1,187 @@
-# Synchronous YOLOv8 GStreamer Plugin
+# Synchronous YOLOv8 GStreamer Plugin Design
 
-## Summary
+## Goal
 
-Build `yolodetect`, a synchronous C++ `GstBaseTransform` that runs Ultralytics YOLOv8 detection through ONNX Runtime CPU and attaches standard GStreamer ROI metadata without modifying the frame.
+Add a minimal `yolodetect` element that receives prepared RGB video frames,
+runs a raw YOLOv8 detection model with ONNX Runtime CPU, attaches bounding-box
+metadata, and pushes the same image buffer downstream. Version 1 deliberately
+runs synchronously so its behavior is easy to understand and verify.
 
-## Milestones
+```mermaid
+flowchart LR
+    A[RGB GstBuffer] --> B[yolodetect]
+    B --> C[Letterbox + FP32 NCHW]
+    C --> D[ONNX Runtime CPU]
+    D --> E[Decode + class-aware NMS]
+    E --> F[ROI metadata]
+    F --> G[Original GstBuffer downstream]
+```
 
-### 1. Dependency and element skeleton
+## Dependencies
 
-- Require `ONNXRUNTIME_ROOT` during CMake configuration and fail clearly when headers or libraries are missing.
-- Add `yolodetect` with RGB sink/source caps and three READY-only properties:
-  - `model-path`: required ONNX path
-  - `confidence-threshold`: double, default `0.25`
-  - `iou-threshold`: double, default `0.45`
-- Create the ONNX Runtime session when the element starts and release it when stopped.
-- Validate a static batch-1 YOLOv8 detection contract: float NCHW input and raw `[1, 4 + classes, candidates]` output. Reject missing names metadata, dynamic or invalid dimensions, NMS-embedded exports, and non-detection models.
+- GStreamer core, base, and video development packages
+- OpenCV core and imgproc for frame views, resize, and padding
+- ONNX Runtime C++ CPU package
+- A fixed-shape Ultralytics YOLOv8 detection export
 
-### 2. Synchronous inference
+The repository keeps ONNX Runtime at
+`third_party/onnxruntime-linux-x64-1.29.0`. The root CMake file exposes it as
+`ONNXRuntime::ONNXRuntime`; both the plugin and standalone demo use that target.
+Another extraction can be selected with
+`-DONNXRUNTIME_ROOT=/absolute/path/to/onnxruntime`.
 
-- Map each RGB frame read-only using `GstVideoFrame`.
-- Apply Ultralytics-compatible letterboxing: preserve aspect ratio, pad with `114`, normalize to `[0,1]`, and produce RGB float NCHW input.
-- Run one CPU inference synchronously per buffer.
-- Decode center-based boxes, select the highest class score, apply the confidence threshold, then class-aware NMS using the IoU threshold.
-- Map boxes back through the letterbox transform, clip them to source dimensions, discard zero-area boxes, and retain at most 300 detections.
+The model must be exported as fixed batch-one FP32 with embedded NMS disabled:
 
-### 3. Metadata and verification
+```bash
+yolo export model=yolov8n.pt format=onnx imgsz=640 batch=1 dynamic=False nms=False
+```
 
-- Attach one `GstVideoRegionOfInterestMeta` per retained box.
-- Use the class name as ROI type and add a `yolo` parameter structure containing:
-  - `class-id`: integer
-  - `label`: string
-  - `confidence`: double
-- Preserve buffer pixels, timestamps, duration, and ordering. Zero detections means zero ROI metas.
-- Extend the existing `metaprint` element to enumerate and print every ROI with frame PTS and detection fields.
-- Any model-loading, mapping, inference, decoding, or metadata failure posts a GStreamer element error and stops the pipeline.
+## Public Element Contract
 
-### 4. Tutorial and synchronous benchmark
+Element name: `yolodetect`
 
-- Document configuration with `-DONNXRUNTIME_ROOT=/absolute/path`, inspection, and pipelines for user-supplied ONNX and media files.
-- Include a headless `decodebin ! videoconvert ! RGB caps ! yolodetect ! metaprint ! fakesink` example.
-- Add debug-level timing for preprocessing, inference, and post-processing so the synchronous bottleneck can be measured.
+Both always-present pads accept only:
 
-### 5. Later asynchronous milestone
+```text
+video/x-raw,format=RGB
+```
 
-- Reuse the synchronous element unchanged behind `tee ! queue leaky=downstream max-size-buffers=1`.
-- Keep display on an independent non-leaky branch; consume inference-branch buffers and ROI metadata separately, correlated by PTS.
-- Add CUDA, batching, or a custom worker element only if measurements show the leaky branch is insufficient.
+Width, height, and framerate remain unconstrained. The element letterboxes each
+negotiated frame to the model size internally. It does not alter pixels,
+timestamps, duration, or buffer order.
 
-## Test Plan
+Properties are writable only through READY state:
 
-- Build with the external ONNX Runtime root and verify `gst-inspect-1.0 yolodetect` reports the expected caps and properties.
-- Add one focused runnable check covering letterbox coordinate reversal, confidence filtering, class-aware NMS, clipping, and an empty result.
-- Confirm missing model paths and incompatible ONNX shapes fail pipeline startup.
-- Run a finite synthetic stream to confirm clean EOS even with zero detections.
-- Run user-supplied COCO-like media and verify multiple printed ROIs have valid labels, confidence values, source-frame coordinates, and original PTS.
-- Confirm changing either threshold before playback changes retained detections.
+| Property | Type | Default | Meaning |
+|---|---:|---:|---|
+| `model-path` | string | none | Required path to the ONNX model |
+| `confidence-threshold` | double | `0.25` | Minimum best-class score |
+| `iou-threshold` | double | `0.45` | Same-class NMS overlap threshold |
 
-## Assumptions
+The model session is created in `start()` and destroyed in `stop()`. Startup
+rejects absent paths or models outside this exact contract:
 
-- The supplied model is an Ultralytics YOLOv8 detection export with `nms=False`, fixed batch and image dimensions, FP32 tensors, and embedded class-name metadata. Ultralytics documents [YOLOv8 ONNX detection support and ONNX metadata embedding](https://docs.ultralytics.com/integrations/onnx).
-- ONNX Runtime is externally installed; no model/runtime downloading or vendored binaries are added.
-- V1 excludes CUDA, live property mutation, drawing boxes, YUV/BGR input, segmentation, pose, tracking, batching, and support for other YOLO generations.
+```text
+input:  one FP32 tensor  [1, 3, model_height, model_width]
+output: one FP32 tensor  [1, 4 + class_count, candidate_count]
+```
+
+All dimensions must be static and positive. This excludes dynamic exports,
+models with embedded NMS, segmentation, pose, and other YOLO layouts.
+
+## Per-Buffer Flow
+
+`transform_ip()` performs the entire operation before returning:
+
+```mermaid
+sequenceDiagram
+    participant U as Upstream
+    participant Y as yolodetect
+    participant O as ONNX Runtime
+    participant D as Downstream
+    U->>Y: RGB GstBuffer
+    Y->>Y: map read-only
+    Y->>Y: letterbox and make FP32 NCHW
+    Y->>Y: unmap frame
+    Y->>O: Session::Run
+    O-->>Y: raw candidates
+    Y->>Y: filter, restore boxes, NMS
+    Y->>Y: attach ROI metas
+    Y-->>D: same GstBuffer
+```
+
+### Preprocessing
+
+For source size `(W, H)` and model size `(Mw, Mh)`:
+
+```text
+scale = min(Mw / W, Mh / H)
+resized = round((W, H) * scale)
+padding = floor((model size - resized size) / 2)
+```
+
+The resized RGB image is centered on a `(114,114,114)` canvas. Its interleaved
+8-bit channels are converted to planar RGB floats in `[0,1]`, producing NCHW
+`[1,3,Mh,Mw]`. `GstVideoFrame` supplies the actual row stride, so padded source
+buffers are handled correctly.
+
+### Inference
+
+One input tensor is created over the preprocessing vector and passed to
+`Ort::Session::Run`. No OpenCV DNN API is used. The default ONNX Runtime CPU
+execution provider performs inference on the streaming thread.
+
+### Postprocessing
+
+For each output candidate, channels 0-3 are center-x, center-y, width, and
+height. Remaining channels are class scores. Processing is:
+
+1. Select the highest scoring class.
+2. Drop candidates below `confidence-threshold`.
+3. Reverse padding and scale to return to source coordinates.
+4. Clip every edge to the source frame and discard zero-area boxes.
+5. Sort by score and apply class-aware NMS using `iou-threshold`.
+
+The initial NMS is an intentionally small O(n²) implementation. It should be
+replaced only if profiling shows candidate suppression is material.
+
+## Metadata Contract
+
+Each retained detection adds one standard
+`GstVideoRegionOfInterestMeta` to the writable buffer:
+
+```text
+roi_type = "yolo-detection"
+x, y, w, h = source-frame integer pixels
+params["yolo"] = {
+    "class-id": int,
+    "confidence": double
+}
+```
+
+Class IDs remain numeric; version 1 does not load labels. A frame with no
+detections receives no ROI metadata. `metaprint` reads all matching metas and
+prints the ROI type, class, confidence, rectangle, and buffer PTS.
+
+## Errors and Observability
+
+Model loading, tensor validation, frame mapping, inference, decoding, and
+metadata attachment failures post a GStreamer element error and stop the
+pipeline. At the `LOG` debug level, each processed frame reports detection
+count plus preprocessing, inference, and postprocessing time:
+
+```bash
+GST_DEBUG=yolodetect:6 GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 ...
+```
+
+## Build and Verification
+
+```bash
+cmake -S . -B build
+cmake --build build
+GST_PLUGIN_PATH="$PWD/build" gst-inspect-1.0 yolodetect
+```
+
+Run the bundled image and model:
+
+```bash
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 -q \
+  filesrc location=assets/bus.jpg ! jpegdec ! videoconvert ! \
+  video/x-raw,format=RGB ! \
+  yolodetect model-path="$PWD/demos/ort_cpu_demo/yolov8n.onnx" ! \
+  metaprint ! fakesink
+```
+
+Verification covers successful inspection, multiple valid ROIs on `bus.jpg`,
+clean EOS with zero detections, startup failure without a model, RGB-only caps
+negotiation, and debug timing output.
+
+## Deferred Work
+
+Version 1 excludes BGR/YUV input, drawing, label lookup, live property changes,
+CUDA, batching, tracking, segmentation, pose, and generalized YOLO layouts.
+
+Asynchronous operation is a later milestone. First measure the synchronous
+timings. A non-blocking pipeline can initially isolate this unchanged element
+behind `tee ! queue leaky=downstream max-size-buffers=1`; a worker-based element
+is justified only if that composition cannot meet the measured requirement.
