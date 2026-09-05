@@ -1,0 +1,1 @@
+add_subdirectory(ort_cpu_demo)

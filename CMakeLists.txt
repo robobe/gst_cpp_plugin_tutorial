@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+add_subdirectory(demos)
+
 find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(
