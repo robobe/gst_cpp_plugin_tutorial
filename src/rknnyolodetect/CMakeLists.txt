@@ -1,0 +1,21 @@
+cmake_minimum_required(VERSION 3.18)
+project(rknnyolodetect LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GST REQUIRED IMPORTED_TARGET gstreamer-1.0 gstreamer-base-1.0 gstreamer-video-1.0)
+pkg_check_modules(RGA REQUIRED IMPORTED_TARGET librga)
+find_path(RKNN_INCLUDE_DIR rknn_api.h REQUIRED)
+find_library(RKNN_LIBRARY rknnrt REQUIRED)
+
+add_library(gstrknnyolodetect SHARED rknnyolodetect.cpp)
+target_include_directories(gstrknnyolodetect PRIVATE "${RKNN_INCLUDE_DIR}" ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(gstrknnyolodetect PRIVATE PkgConfig::GST PkgConfig::RGA ${OpenCV_LIBS} "${RKNN_LIBRARY}")
+target_compile_options(gstrknnyolodetect PRIVATE -Wall -Wextra)
+set_target_properties(gstrknnyolodetect PROPERTIES SKIP_BUILD_RPATH TRUE)
+
+add_library(gstmetaprint SHARED ../metaprint.cpp)
+target_link_libraries(gstmetaprint PRIVATE PkgConfig::GST)
+set_target_properties(gstmetaprint PROPERTIES SKIP_BUILD_RPATH TRUE)

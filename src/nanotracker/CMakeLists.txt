@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.18)
+project(rknnnanotrack LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GST REQUIRED IMPORTED_TARGET gstreamer-1.0 gstreamer-base-1.0 gstreamer-video-1.0)
+pkg_check_modules(RGA REQUIRED IMPORTED_TARGET librga)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc)
+find_path(RKNN_INCLUDE_DIR rknn_api.h REQUIRED)
+find_library(RKNN_LIBRARY rknnrt REQUIRED)
+
+add_library(gstrknnnanotrack SHARED gstrknnnanotrack.cpp)
+target_include_directories(gstrknnnanotrack PRIVATE "${RKNN_INCLUDE_DIR}" ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(gstrknnnanotrack PRIVATE PkgConfig::GST PkgConfig::RGA ${OpenCV_LIBS} "${RKNN_LIBRARY}")
+target_compile_options(gstrknnnanotrack PRIVATE -Wall -Wextra)
+set_target_properties(gstrknnnanotrack PROPERTIES SKIP_BUILD_RPATH TRUE)
+
+add_library(gstmetaprint SHARED ../metaprint.cpp)
+target_link_libraries(gstmetaprint PRIVATE PkgConfig::GST)
+set_target_properties(gstmetaprint PROPERTIES SKIP_BUILD_RPATH TRUE)
+
+add_executable(nanotracker-check check.cpp)
+target_link_libraries(nanotracker-check PRIVATE PkgConfig::GST)
+target_compile_options(nanotracker-check PRIVATE -Wall -Wextra)
+set_target_properties(nanotracker-check PROPERTIES SKIP_BUILD_RPATH TRUE)

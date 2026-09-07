@@ -1,5 +1,8 @@
 # Using RKNN YOLO Detection on Radxa Zero 3W
 
+See the [plugin README](../../src/rknnyolodetect/README.md) for source explanations,
+model requirements, properties, and metadata usage.
+
 ## Prepare the Board and Sysroot
 
 Install only the development packages that do not disturb the board's existing
@@ -53,17 +56,17 @@ dpkg-deb -x /tmp/orc-dev.deb "$RADXA_SYSROOT"
 Run from the repository root:
 
 ```bash
-cmake -S radxa -B build-radxa -G Ninja \
+cmake -S src/rknnyolodetect -B build-radxa-yolo -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchains/radxa-zero3w.cmake" \
   -DRADXA_SYSROOT="$HOME/sysroots/radxa"
-cmake --build build-radxa
+cmake --build build-radxa-yolo
 ```
 
 ## Deploy
 
 ```bash
 ssh radxa 'mkdir -p ~/gst-yolo-demo/{plugins,assets,models}'
-scp build-radxa/libgstrknnyolodetect.so build-radxa/libgstmetaprint.so \
+scp build-radxa-yolo/libgstrknnyolodetect.so build-radxa-yolo/libgstmetaprint.so \
   radxa:gst-yolo-demo/plugins/
 scp assets/bus.jpg radxa:gst-yolo-demo/assets/
 scp /home/user/Downloads/yolov8n.rknn radxa:gst-yolo-demo/models/

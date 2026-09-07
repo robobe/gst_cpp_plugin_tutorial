@@ -4,6 +4,7 @@
 
 #include <im2d.h>
 #include <rknn_api.h>
+#include <opencv2/imgproc.hpp>
 
 #include <algorithm>
 #include <array>
@@ -174,7 +175,7 @@ public:
         const bool use_mapped_frame = row_stride == width * 3 && width % 16 == 0;
         const int source_stride_pixels = use_mapped_frame ? width : ((width + 15) & ~15);
         void* source_data = const_cast<unsigned char*>(rgb);
-        if (!use_mapped_frame) {
+        if (use_rga_ && !use_mapped_frame) {
             source_rgb_.resize(static_cast<size_t>(source_stride_pixels) * height * 3);
             for (int y = 0; y < height; ++y) {
                 std::memcpy(
@@ -197,43 +198,51 @@ public:
         const int pad_x = (kModelWidth - resized_width) / 2;
         const int pad_y = (kModelHeight - resized_height) / 2;
 
-        rga_buffer_t source = wrapbuffer_virtualaddr_t(
-            source_data,
-            width,
-            height,
-            source_stride_pixels,
-            height,
-            RK_FORMAT_RGB_888
-        );
-        rga_buffer_t destination = wrapbuffer_virtualaddr_t(
-            model_input_.data(),
-            kModelWidth,
-            kModelHeight,
-            kModelWidth,
-            kModelHeight,
-            RK_FORMAT_RGB_888
-        );
-        const im_rect whole = {0, 0, kModelWidth, kModelHeight};
-        IM_STATUS status = imfill(destination, whole, 0x72727272);
-        if (status <= 0) {
-            throw std::runtime_error(std::string("RGA fill failed: ") + imStrError(status));
-        }
+        if (use_rga_) {
+            rga_buffer_t source = wrapbuffer_virtualaddr_t(
+                source_data,
+                width,
+                height,
+                source_stride_pixels,
+                height,
+                RK_FORMAT_RGB_888
+            );
+            rga_buffer_t destination = wrapbuffer_virtualaddr_t(
+                model_input_.data(),
+                kModelWidth,
+                kModelHeight,
+                kModelWidth,
+                kModelHeight,
+                RK_FORMAT_RGB_888
+            );
+            const im_rect whole = {0, 0, kModelWidth, kModelHeight};
+            IM_STATUS status = imfill(destination, whole, 0x72727272);
 
-        rga_buffer_t pattern{};
-        const im_rect source_rect = {0, 0, width, height};
-        const im_rect destination_rect = {pad_x, pad_y, resized_width, resized_height};
-        const im_rect pattern_rect{};
-        status = improcess(
-            source,
-            destination,
-            pattern,
-            source_rect,
-            destination_rect,
-            pattern_rect,
-            0
-        );
-        if (status <= 0) {
-            throw std::runtime_error(std::string("RGA resize failed: ") + imStrError(status));
+            rga_buffer_t pattern{};
+            const im_rect source_rect = {0, 0, width, height};
+            const im_rect destination_rect = {pad_x, pad_y, resized_width, resized_height};
+            const im_rect pattern_rect{};
+            if (status > 0) status = improcess(
+                source,
+                destination,
+                pattern,
+                source_rect,
+                destination_rect,
+                pattern_rect,
+                0
+            );
+            if (status <= 0) {
+                GST_WARNING("RGA preprocessing failed: %s; using CPU resize until stop", imStrError(status));
+                use_rga_ = false;
+            }
+        }
+        if (!use_rga_) {
+            // Overwrite the whole input, including any partial RGA result.
+            cv::Mat input(height, width, CV_8UC3, const_cast<unsigned char*>(rgb), row_stride);
+            cv::Mat output(kModelHeight, kModelWidth, CV_8UC3, model_input_.data());
+            output.setTo(cv::Scalar(114, 114, 114));
+            cv::Mat region = output(cv::Rect(pad_x, pad_y, resized_width, resized_height));
+            cv::resize(input, region, region.size(), 0, 0, cv::INTER_LINEAR);
         }
 
         return {
@@ -479,6 +488,7 @@ private:
         return detections;
     }
 
+    bool use_rga_ = true;
     rknn_context context_ = 0;
     rknn_sdk_version version_{};
     rknn_tensor_attr input_attr_{};

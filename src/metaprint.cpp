@@ -127,7 +127,7 @@ static gboolean print_detection_meta(GstBuffer* buffer)
     return TRUE;
 }
 
-static gboolean print_yolo_roi_meta(GstBuffer* buffer)
+static gboolean print_roi_meta(GstBuffer* buffer)
 {
     gpointer state = nullptr;
     gboolean found = FALSE;
@@ -141,6 +141,22 @@ static gboolean print_yolo_roi_meta(GstBuffer* buffer)
         GstStructure* parameters =
             gst_video_region_of_interest_meta_get_param(roi, "yolo");
         if (parameters == nullptr) {
+            parameters = gst_video_region_of_interest_meta_get_param(roi, "nanotrack");
+            if (parameters == nullptr) continue;
+            gboolean initialized = FALSE;
+            gdouble confidence = 0;
+            gst_structure_get_boolean(parameters, "initialized", &initialized);
+            const gboolean has_confidence = gst_structure_get_double(parameters, "confidence", &confidence);
+            g_print("metaprint: roi=%s initialized=%s x=%u y=%u width=%u height=%u",
+                    g_quark_to_string(roi->roi_type), initialized ? "true" : "false",
+                    roi->x, roi->y, roi->w, roi->h);
+            if (has_confidence) g_print(" confidence=%.6f", confidence);
+            const GstClockTime pts = GST_BUFFER_PTS(buffer);
+            if (GST_CLOCK_TIME_IS_VALID(pts))
+                g_print(" pts=%" GST_TIME_FORMAT "\n", GST_TIME_ARGS(pts));
+            else
+                g_print(" pts=GST_CLOCK_TIME_NONE\n");
+            found = TRUE;
             continue;
         }
 
@@ -183,7 +199,7 @@ static GstFlowReturn gst_meta_print_transform_ip(
     GstBaseTransform* base,
     GstBuffer* buffer)
 {
-    if (print_yolo_roi_meta(buffer)) {
+    if (print_roi_meta(buffer)) {
         return GST_FLOW_OK;
     }
 
