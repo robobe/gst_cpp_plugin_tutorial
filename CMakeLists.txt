@@ -259,22 +259,4 @@ set_target_properties(
     OUTPUT_NAME "gstcontrolledreddetect"
 )
 
-add_library(
-    gstyolodetect
-    SHARED
-    src/yolodetect.cpp
-)
-
-target_link_libraries(
-    gstyolodetect
-    PRIVATE
-    PkgConfig::GST
-    PkgConfig::OPENCV
-    ONNXRuntime::ONNXRuntime
-)
-
-set_target_properties(
-    gstyolodetect
-    PROPERTIES
-    OUTPUT_NAME "gstyolodetect"
-)
+add_subdirectory(src/yolodetect)

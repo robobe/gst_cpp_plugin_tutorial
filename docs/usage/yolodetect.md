@@ -4,6 +4,12 @@ Run these commands from the project root.
 
 ## Build
 
+On Ubuntu 24.04, install the analytics development API once:
+
+```bash
+sudo apt install -y libgstreamer-plugins-bad1.0-dev
+```
+
 ```bash
 cmake -S . -B build
 cmake --build build
@@ -12,8 +18,8 @@ cmake --build build
 ## Run Detection on the Example Image
 
 This pipeline decodes `assets/bus.jpg`, converts it to the RGB format required
-by `yolodetect`, runs inference, prints the detection metadata, and discards the
-image at the end of the pipeline:
+by `yolodetect`, and runs inference. The plugin attaches analytics
+object-detection metadata to the frame:
 
 ```bash
 GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 -q \
@@ -22,19 +28,60 @@ GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 -q \
   videoconvert ! \
   video/x-raw,format=RGB ! \
   yolodetect model-path="$PWD/demos/ort_cpu_demo/yolov8n.onnx" ! \
-  metaprint ! \
   fakesink
 ```
 
-Example output:
+Object types are numeric YOLO class IDs; for the COCO model, `0` is a person
+and `5` is a bus.
 
-```text
-metaprint: roi=yolo-detection class=0 confidence=0.88 x=211 y=241 width=73 height=267 ...
-metaprint: roi=yolo-detection class=5 confidence=0.84 x=97 y=136 width=453 height=321 ...
+## Limit CPU Threads
+
+`intra-op-threads=0` (the default) lets ONNX Runtime choose its worker count.
+Set a positive value to cap inference workers, for example one thread:
+
+```bash
+yolodetect model-path="$PWD/demos/ort_cpu_demo/yolov8n.onnx" intra-op-threads=1
 ```
 
-For the COCO model used by YOLOv8, class `0` is a person and class `5` is a
-bus. The plugin publishes metadata without drawing boxes on the image.
+## Create an INT8 Model
+
+Create a separate static-INT8 model calibrated from the bundled detection
+video. It validates the output tensor and prints FP32 versus INT8 CPU timings:
+
+```bash
+python3 onnx/python/quantize_yolo.py --threads=1
+```
+
+Use the result only when its reported speedup is greater than `1.00x` and it
+has been validated on representative deployment footage. Quantization is
+hardware-dependent and may be slower than FP32.
+
+To test a faster model with the plugin:
+
+```bash
+yolodetect model-path="$PWD/models/yolov8n.int8.onnx" intra-op-threads=1
+```
+
+## Draw Detection Boxes
+
+Ubuntu's packaged 1.24.2 `objectdetectionoverlay` does not forward EOS, so a
+pipeline ending in that element does not terminate. Use the newer GStreamer
+development environment described in
+[ONNX YOLO GStreamer Build](onnx-yolo-gstreamer-build.md) to render boxes:
+
+```bash
+meson devenv -C "$HOME/src/gstreamer/build"
+```
+
+From that shell, run:
+
+```bash
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 -e \
+  filesrc location="$PWD/assets/detection-demo.mp4" ! \
+  decodebin ! videoconvert ! video/x-raw,format=RGB ! \
+  yolodetect model-path="$PWD/demos/ort_cpu_demo/yolov8n.onnx" ! \
+  objectdetectionoverlay ! videoconvert ! autovideosink sync=false
+```
 
 ## Show Processing Times
 
@@ -49,7 +96,7 @@ gst-launch-1.0 -q \
   filesrc location="$PWD/assets/bus.jpg" ! \
   jpegdec ! videoconvert ! video/x-raw,format=RGB ! \
   yolodetect model-path="$PWD/demos/ort_cpu_demo/yolov8n.onnx" ! \
-  metaprint ! fakesink
+  fakesink
 ```
 
 ## Run Detection on a Demo Video
@@ -62,17 +109,5 @@ curl -fL \
   -o assets/detection-demo.mp4
 ```
 
-Decode the video, convert each frame to RGB, run YOLO inference, print the
-detection metadata, and display the original frames:
-
-```bash
-GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 -e \
-  filesrc location="$PWD/assets/detection-demo.mp4" ! \
-  decodebin ! videoconvert ! video/x-raw,format=RGB ! \
-  yolodetect model-path="$PWD/demos/ort_cpu_demo/yolov8n.onnx" ! \
-  metaprint ! videoconvert ! autovideosink sync=false
-```
-
-This pipeline displays the video and prints detections. It does not draw the
-bounding boxes because `yolodetect` currently publishes metadata without
-rendering it into the frame.
+Use the drawing pipeline above from the newer GStreamer environment. It
+displays bounding boxes and numeric class labels.
