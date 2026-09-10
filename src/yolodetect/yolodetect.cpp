@@ -1,5 +1,4 @@
 #include <gst/gst.h>
-#include <gst/analytics/analytics.h>
 #include <gst/base/gstbasetransform.h>
 #include <gst/video/video.h>
 
@@ -77,7 +76,7 @@ struct YoloRuntime {
             output_shape.size() != 3 || output_shape[0] != 1 ||
             output_shape[1] < 5 || output_shape[2] <= 0) {
             throw std::runtime_error(
-                "expected raw FP32 YOLOv8 output [1, 4 + classes, candidates]; export with nms=False"
+                "expected raw FP32 YOLO output [1, 4 + classes, candidates]"
             );
         }
         output_channels = output_shape[1];
@@ -424,30 +423,30 @@ static GstFlowReturn gst_yolo_detect_transform_ip(
             static_cast<float>(self->iou_threshold)
         );
 
-        GstAnalyticsRelationMeta* analytics =
-            gst_buffer_get_analytics_relation_meta(buffer);
-        if (analytics == nullptr) {
-            analytics = gst_buffer_add_analytics_relation_meta(buffer);
-        }
-        if (analytics == nullptr) {
-            throw std::runtime_error("failed to attach analytics metadata");
-        }
-
-        for (const Detection& detection : detections) {
-            GstAnalyticsODMtd object_detection;
-            const std::string label = std::to_string(detection.class_id);
-            if (!gst_analytics_relation_meta_add_od_mtd(
-                    analytics,
-                    g_quark_from_string(label.c_str()),
+        for (size_t index = 0; index < detections.size(); ++index) {
+            const Detection& detection = detections[index];
+            GstVideoRegionOfInterestMeta* roi =
+                gst_buffer_add_video_region_of_interest_meta(
+                    buffer,
+                    "yolo-detection",
                     detection.box.x,
                     detection.box.y,
                     detection.box.width,
-                    detection.box.height,
-                    detection.confidence,
-                    &object_detection
-                )) {
-                throw std::runtime_error("failed to attach object detection metadata");
+                    detection.box.height
+                );
+            if (roi == nullptr) {
+                throw std::runtime_error("failed to attach ROI metadata");
             }
+            roi->id = static_cast<gint>(index);
+            gst_video_region_of_interest_meta_add_param(
+                roi,
+                gst_structure_new(
+                    "yolo",
+                    "class-id", G_TYPE_INT, detection.class_id,
+                    "confidence", G_TYPE_DOUBLE, static_cast<double>(detection.confidence),
+                    nullptr
+                )
+            );
         }
         const auto done = std::chrono::steady_clock::now();
         const auto milliseconds = [](auto start, auto end) {
@@ -504,7 +503,7 @@ static void gst_yolo_detect_class_init(GstYoloDetectClass* klass)
         g_param_spec_string(
             "model-path",
             "Model path",
-            "Path to a raw YOLOv8 detection ONNX model",
+            "Path to a raw YOLO detection ONNX model",
             nullptr,
             property_flags
         )
@@ -553,7 +552,7 @@ static void gst_yolo_detect_class_init(GstYoloDetectClass* klass)
         element_class,
         "YOLO Detect",
         "Filter/Metadata/Video",
-        "Runs synchronous YOLOv8 inference and attaches analytics metadata",
+        "Runs synchronous YOLO inference and attaches ROI metadata",
         "example"
     );
     gst_element_class_add_static_pad_template(element_class, &sink_template);
@@ -583,7 +582,7 @@ static gboolean plugin_init(GstPlugin* plugin)
         gst_yolo_detect_debug,
         "yolodetect",
         0,
-        "YOLOv8 detection"
+        "YOLO detection"
     );
     return gst_element_register(plugin, "yolodetect", GST_RANK_NONE, GST_TYPE_YOLO_DETECT);
 }
@@ -592,7 +591,7 @@ GST_PLUGIN_DEFINE(
     GST_VERSION_MAJOR,
     GST_VERSION_MINOR,
     yolodetect,
-    "Synchronous YOLOv8 ONNX Runtime detector",
+    "Synchronous YOLO ONNX Runtime detector",
     plugin_init,
     "1.0",
     "LGPL",

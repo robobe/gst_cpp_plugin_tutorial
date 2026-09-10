@@ -3,13 +3,6 @@
 Run these commands from the project root.
 
 ## Build
-
-On Ubuntu 24.04, install the analytics development API once:
-
-```bash
-sudo apt install -y libgstreamer-plugins-bad1.0-dev
-```
-
 ```bash
 cmake -S . -B build
 cmake --build build
@@ -18,8 +11,10 @@ cmake --build build
 ## Run Detection on the Example Image
 
 This pipeline decodes `assets/bus.jpg`, converts it to the RGB format required
-by `yolodetect`, and runs inference. The plugin attaches analytics
-object-detection metadata to the frame:
+by `yolodetect`, and runs inference. Each retained object is attached as
+`GstVideoRegionOfInterestMeta`, matching `rknnyolodetect`: ROI type
+`yolo-detection` and a `yolo` parameter structure with `class-id` and
+`confidence`.
 
 ```bash
 GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 -q \
@@ -33,6 +28,25 @@ GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 -q \
 
 Object types are numeric YOLO class IDs; for the COCO model, `0` is a person
 and `5` is a bus.
+
+## YOLO26
+
+The same element supports a raw YOLO26 ONNX export. Download and create the
+bundled YOLO26n model once:
+
+```bash
+.venv/bin/python demos/yolo26/export_yolo26.py
+```
+
+Then use it exactly like YOLOv8:
+
+```bash
+yolodetect model-path="$PWD/demos/yolo26/yolo26n.onnx"
+```
+
+The exporter uses `nms=None`, yielding raw `[1,84,8400]` COCO predictions;
+`yolodetect` applies confidence filtering and NMS. Do not export YOLO26 with
+`nms=False`, which creates an incompatible end-to-end `[1,300,6]` output.
 
 ## Limit CPU Threads
 
@@ -62,25 +76,15 @@ To test a faster model with the plugin:
 yolodetect model-path="$PWD/models/yolov8n.int8.onnx" intra-op-threads=1
 ```
 
-## Draw Detection Boxes
+## Print Detection Metadata
 
-Ubuntu's packaged 1.24.2 `objectdetectionoverlay` does not forward EOS, so a
-pipeline ending in that element does not terminate. Use the newer GStreamer
-development environment described in
-[ONNX YOLO GStreamer Build](onnx-yolo-gstreamer-build.md) to render boxes:
+Use `metaprint` to inspect the shared YOLO ROI metadata:
 
 ```bash
-meson devenv -C "$HOME/src/gstreamer/build"
-```
-
-From that shell, run:
-
-```bash
-GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 -e \
-  filesrc location="$PWD/assets/detection-demo.mp4" ! \
-  decodebin ! videoconvert ! video/x-raw,format=RGB ! \
-  yolodetect model-path="$PWD/demos/ort_cpu_demo/yolov8n.onnx" ! \
-  objectdetectionoverlay ! videoconvert ! autovideosink sync=false
+GST_PLUGIN_PATH="$PWD/build" gst-launch-1.0 -q \
+  filesrc location="$PWD/assets/bus.jpg" ! jpegdec ! videoconvert ! \
+  video/x-raw,format=RGB ! \
+  yolodetect model-path="$PWD/demos/ort_cpu_demo/yolov8n.onnx" ! metaprint ! fakesink
 ```
 
 ## Show Processing Times
@@ -109,5 +113,5 @@ curl -fL \
   -o assets/detection-demo.mp4
 ```
 
-Use the drawing pipeline above from the newer GStreamer environment. It
-displays bounding boxes and numeric class labels.
+Use the metadata-printing pipeline above with the downloaded video source to
+inspect boxes and numeric class labels.
