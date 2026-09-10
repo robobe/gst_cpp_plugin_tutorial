@@ -11,3 +11,15 @@ trackers:
     element: cpulighttrack
     models-dir: ../demos/lighttrack/onnx
     metadata: lighttrack
+  CPU YOLOv8:
+    kind: detector
+    element: yolodetect
+    model-path: ../demos/ort_cpu_demo/yolov8n.onnx
+    metadata: yolo
+    roi-type: yolo-detection
+  CPU YOLO26n:
+    kind: detector
+    element: yolodetect
+    model-path: ../demos/yolo26/yolo26n.onnx
+    metadata: yolo
+    roi-type: yolo-detection

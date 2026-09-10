@@ -12,6 +12,10 @@ cmake -S src/cpunanotracker -B build-cpunanotracker -G Ninja -DCMAKE_BUILD_TYPE=
 cmake --build build-cpunanotracker
 cmake -S src/cpulighttrack -B build-cpulighttrack -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build-cpulighttrack
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target gstyolodetect
+.venv/bin/pip install --no-deps 'ultralytics==8.4.146' onnxslim
+.venv/bin/python demos/yolo26/export_yolo26.py
 python3 apps/run_cpunanotracker_benchmark.py
 ```
 
@@ -31,6 +35,18 @@ trackers:
     element: cpulighttrack
     models-dir: ../demos/lighttrack/onnx
     metadata: lighttrack
+  CPU YOLOv8:
+    kind: detector
+    element: yolodetect
+    model-path: ../demos/ort_cpu_demo/yolov8n.onnx
+    metadata: yolo
+    roi-type: yolo-detection
+  CPU YOLO26n:
+    kind: detector
+    element: yolodetect
+    model-path: ../demos/yolo26/yolo26n.onnx
+    metadata: yolo
+    roi-type: yolo-detection
 ```
 
 Paths are relative to the YAML file. A path may be a video file or a folder
@@ -45,6 +61,8 @@ before loading. Auto preserves a video file's source timing and plays image
 sequences at 20 FPS. A selected number sets the playback rate for either type.
 Choose a tracker before loading: the player builds its pipeline using that
 tracker's `element`, `models-dir`, and ROI `metadata` configuration.
+Selecting **CPU YOLOv8** disables ROI selection and draws every detected box
+with its numeric class ID and confidence.
 
 Click **Load selected** to load the chosen YAML entry. **Browse file** loads a
 video outside the catalog; **Browse folder** loads an image sequence outside

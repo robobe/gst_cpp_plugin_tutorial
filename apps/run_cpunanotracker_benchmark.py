@@ -50,14 +50,21 @@ def load_catalog(config_path):
     for name, settings in trackers.items():
         if not isinstance(name, str) or not name or not isinstance(settings, dict):
             raise ValueError(f"{config_path}: every tracker must have a non-empty name and settings")
-        element, models_dir, metadata = (settings.get(key) for key in ("element", "models-dir", "metadata"))
-        if not all(isinstance(value, str) and value for value in (element, models_dir, metadata)):
-            raise ValueError(f"{config_path}: tracker {name!r} needs element, models-dir, and metadata text")
-        model_path = Path(models_dir)
+        kind = settings.get("kind", "tracker")
+        element, metadata = settings.get("element"), settings.get("metadata")
+        if kind not in ("tracker", "detector") or not all(isinstance(value, str) and value for value in (element, metadata)):
+            raise ValueError(f"{config_path}: {name!r} needs kind, element, and metadata text")
+        path_key = "models-dir" if kind == "tracker" else "model-path"
+        model_path = settings.get(path_key)
+        if not isinstance(model_path, str) or not model_path:
+            raise ValueError(f"{config_path}: {name!r} needs {path_key}")
+        model_path = Path(model_path)
         resolved_trackers[name] = {
+            "kind": kind,
             "element": element,
-            "models_dir": (config_path.parent / model_path).resolve() if not model_path.is_absolute() else model_path,
+            "model_path": (config_path.parent / model_path).resolve() if not model_path.is_absolute() else model_path,
             "metadata": metadata,
+            "roi_type": settings.get("roi-type", metadata),
         }
     return resolved, resolved_trackers
 
@@ -130,6 +137,23 @@ def tracking_result(buffer, metadata):
     return meta.x, meta.y, meta.w, meta.h, initialized, confidence
 
 
+def detection_results(buffer, metadata, roi_type):
+    results = []
+    roi_type_id = GLib.quark_from_string(roi_type)
+    for index in range(1000):
+        meta = GstVideo.buffer_get_video_region_of_interest_meta_id(buffer, index)
+        if meta is None:
+            break
+        if meta.roi_type != roi_type_id:
+            continue
+        params = meta.get_param(metadata)
+        if params is None:
+            continue
+        results.append((meta.x, meta.y, meta.w, meta.h, int(params.get_value("class-id")),
+                        float(params.get_value("confidence"))))
+    return results
+
+
 class BenchmarkApp:
     def __init__(self, videos, trackers, root_dir):
         self.videos = videos
@@ -157,10 +181,12 @@ class BenchmarkApp:
         ttk.Label(main, text="Source").grid(row=0, column=0, sticky="w")
         self.combo = ttk.Combobox(main, textvariable=self.selected, values=list(videos), state="readonly", width=28)
         self.combo.grid(row=0, column=1, sticky="ew", padx=(8, 0))
-        ttk.Label(main, text="Tracker").grid(row=1, column=0, sticky="w")
-        ttk.Combobox(main, textvariable=self.selected_tracker, values=list(trackers), state="readonly", width=28).grid(
+        ttk.Label(main, text="Tracker / detector").grid(row=1, column=0, sticky="w")
+        self.processor_combo = ttk.Combobox(main, textvariable=self.selected_tracker, values=list(trackers), state="readonly", width=28)
+        self.processor_combo.grid(
             row=1, column=1, sticky="ew", padx=(8, 0)
         )
+        self.processor_combo.bind("<<ComboboxSelected>>", lambda _: self.update_controls())
         self.fps = tk.StringVar(value="Auto")
         ttk.Label(main, text="Playback FPS").grid(row=2, column=0, sticky="w")
         ttk.Combobox(main, textvariable=self.fps, values=FPS_CHOICES, state="readonly", width=28).grid(
@@ -179,7 +205,8 @@ class BenchmarkApp:
     def update_controls(self):
         state = "normal" if self.pipeline else "disabled"
         self.play_button.configure(state=state, text="Play" if self.paused else "Pause")
-        self.roi_button.configure(state=state)
+        is_tracker = self.trackers[self.selected_tracker.get()]["kind"] == "tracker"
+        self.roi_button.configure(state=state if is_tracker else "disabled")
 
     def reset_statistics(self):
         self.stats_started_at = None
@@ -190,6 +217,8 @@ class BenchmarkApp:
         self.low_confidence_frames = 0
 
     def statistics_summary(self):
+        if self.tracker_config["kind"] == "detector":
+            return "Video finished — detector playback complete"
         if not self.roi_selected or not self.stats_frames:
             return "Video finished — no tracker statistics (no ROI was tracked)"
         elapsed = self.stats_elapsed
@@ -208,9 +237,8 @@ class BenchmarkApp:
 
     def build_pipeline(self, source_path):
         self.tracker_config = self.trackers[self.selected_tracker.get()]
-        models = gst_string(self.tracker_config["models_dir"])
         fps = self.fps.get()
-        output_caps = "video/x-raw,format=BGR,interlace-mode=progressive"
+        output_caps = f"video/x-raw,format={'BGR' if self.tracker_config['kind'] == 'tracker' else 'RGB'},interlace-mode=progressive"
         if source_path.is_file():
             source = f"filesrc location={gst_string(source_path)} ! decodebin ! videoconvert"
             if fps != "Auto":
@@ -227,11 +255,11 @@ class BenchmarkApp:
             self.source_kind = f"image sequence ({sequence_fps} FPS)"
         else:
             raise ValueError(f"Missing source: {source_path}")
-        description = (
-            f"{source} ! {output_caps} ! "
-            f"{self.tracker_config['element']} name=tracker enabled=false models-dir={models} ! "
-            f"appsink name=sink sync=true max-buffers=1 drop=true"
-        )
+        if self.tracker_config["kind"] == "tracker":
+            processor = f"{self.tracker_config['element']} name=tracker enabled=false models-dir={gst_string(self.tracker_config['model_path'])}"
+        else:
+            processor = f"{self.tracker_config['element']} name=tracker model-path={gst_string(self.tracker_config['model_path'])}"
+        description = f"{source} ! {output_caps} ! {processor} ! appsink name=sink sync=true max-buffers=1 drop=true"
         self.pipeline = Gst.parse_launch(description)
         self.tracker = self.pipeline.get_by_name("tracker")
         self.sink = self.pipeline.get_by_name("sink")
@@ -274,13 +302,14 @@ class BenchmarkApp:
             self.roi_selected = False
             self.reset_statistics()
             self.update_controls()
-            self.status.set(f"Ready ({self.source_kind}) — Play now, or select an ROI before playing")
+            action = "Play to run detection" if self.tracker_config["kind"] == "detector" else "Play now, or select an ROI before playing"
+            self.status.set(f"Ready ({self.source_kind}) — {action}")
         except (GLib.Error, RuntimeError, ValueError) as error:
             self.status.set(str(error))
             self.stop_video()
 
     def select_roi(self):
-        if not self.pipeline or self.last_frame is None:
+        if self.trackers[self.selected_tracker.get()]["kind"] != "tracker" or not self.pipeline or self.last_frame is None:
             return
         if not self.paused:
             self.status.set("Pause playback before selecting an ROI")
@@ -298,7 +327,6 @@ class BenchmarkApp:
 
     def show_frame(self, sample):
         frame = frame_from_sample(sample)
-        result = tracking_result(sample.get_buffer(), self.tracker_config["metadata"])
         now = time.monotonic()
         self.frame_times.append(now)
         while self.frame_times and now - self.frame_times[0] > 1.0:
@@ -306,21 +334,30 @@ class BenchmarkApp:
         fps = len(self.frame_times)
 
         text = f"FPS: {fps:.0f}"
-        if result is None:
-            text += "  select ROI" if not self.roi_selected else "  initializing"
+        if self.tracker_config["kind"] == "detector":
+            detections = detection_results(sample.get_buffer(), self.tracker_config["metadata"], self.tracker_config["roi_type"])
+            text += f"  detections: {len(detections)}"
+            for x, y, width, height, class_id, confidence in detections:
+                cv2.rectangle(frame, (x, y), (x + width, y + height), (0, 255, 0), 2)
+                cv2.putText(frame, f"{class_id}: {confidence:.3f}", (x, max(18, y - 6)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
         else:
-            x, y, width, height, initialized, confidence = result
-            score = float(confidence) if confidence is not None else None
-            color = (0, 255, 255) if initialized or score is None else (0, 0, 255) if score < LOST_CONFIDENCE else (0, 255, 0)
-            cv2.rectangle(frame, (x, y), (x + width, y + height), color, 2)
-            text += "  initializing" if initialized or score is None else f"  confidence: {score:.3f}"
-            if self.roi_selected:
-                self.stats_frames += 1
-                if score is not None:
-                    self.confidence_sum += score
-                    self.confidence_frames += 1
-                    if score < LOST_CONFIDENCE:
-                        self.low_confidence_frames += 1
+            result = tracking_result(sample.get_buffer(), self.tracker_config["metadata"])
+            if result is None:
+                text += "  select ROI" if not self.roi_selected else "  initializing"
+            else:
+                x, y, width, height, initialized, confidence = result
+                score = float(confidence) if confidence is not None else None
+                color = (0, 255, 255) if initialized or score is None else (0, 0, 255) if score < LOST_CONFIDENCE else (0, 255, 0)
+                cv2.rectangle(frame, (x, y), (x + width, y + height), color, 2)
+                text += "  initializing" if initialized or score is None else f"  confidence: {score:.3f}"
+                if self.roi_selected:
+                    self.stats_frames += 1
+                    if score is not None:
+                        self.confidence_sum += score
+                        self.confidence_frames += 1
+                        if score < LOST_CONFIDENCE:
+                            self.low_confidence_frames += 1
         cv2.putText(frame, text, (12, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
         self.last_frame = frame
         cv2.imshow(WINDOW_TITLE, frame)
@@ -344,7 +381,7 @@ class BenchmarkApp:
         if not self.pipeline:
             return
         now = time.monotonic()
-        if self.paused and self.roi_selected:
+        if self.tracker_config["kind"] == "tracker" and self.paused and self.roi_selected:
             self.stats_started_at = now
         elif not self.paused and self.stats_started_at is not None:
             self.stats_elapsed += now - self.stats_started_at
@@ -383,7 +420,7 @@ class BenchmarkApp:
             self.stop_video()
         elif key == ord(" "):
             self.toggle_pause()
-        elif key == ord("r"):
+        elif key == ord("r") and self.trackers[self.selected_tracker.get()]["kind"] == "tracker":
             self.select_roi()
         self.root.after(1, self.tick)
 
@@ -417,16 +454,16 @@ def main():
             for path in videos.values():
                 validate_source(path)
             for tracker in trackers.values():
-                if not tracker["models_dir"].is_dir():
-                    raise ValueError(f"Missing tracker models: {tracker['models_dir']}")
+                if not tracker["model_path"].exists():
+                    raise ValueError(f"Missing model: {tracker['model_path']}")
         except ValueError as error:
             print(error, file=sys.stderr)
             return 1
-        print(f"Valid catalog: {len(videos)} source(s), {len(trackers)} tracker(s)")
+        print(f"Valid catalog: {len(videos)} source(s), {len(trackers)} processor(s)")
         return 0
 
     root_dir = Path(__file__).resolve().parents[1]
-    plugin_dirs = (root_dir / "build-cpunanotracker", root_dir / "build-cpulighttrack")
+    plugin_dirs = (root_dir / "build-cpunanotracker", root_dir / "build-cpulighttrack", root_dir / "build/src/yolodetect")
     existing = os.environ.get("GST_PLUGIN_PATH")
     os.environ["GST_PLUGIN_PATH"] = ":".join(str(path) for path in plugin_dirs) + (f":{existing}" if existing else "")
     Gst.init(None)
