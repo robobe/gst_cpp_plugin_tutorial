@@ -12,6 +12,8 @@ cmake -S src/cpunanotracker -B build-cpunanotracker -G Ninja -DCMAKE_BUILD_TYPE=
 cmake --build build-cpunanotracker
 cmake -S src/cpulighttrack -B build-cpulighttrack -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build-cpulighttrack
+cmake -S src/cpulktracker -B build-cpulktracker -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-cpulktracker
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target gstyolodetect
 .venv/bin/pip install --no-deps 'ultralytics==8.4.146' onnxslim
@@ -35,6 +37,9 @@ trackers:
     element: cpulighttrack
     models-dir: ../demos/lighttrack/onnx
     metadata: lighttrack
+  CPU LK Optical Flow:
+    element: cpulktracker
+    metadata: flowtrack
   CPU YOLOv8:
     kind: detector
     element: yolodetect

@@ -11,6 +11,9 @@ trackers:
     element: cpulighttrack
     models-dir: ../demos/lighttrack/onnx
     metadata: lighttrack
+  CPU LK Optical Flow:
+    element: cpulktracker
+    metadata: flowtrack
   CPU YOLOv8:
     kind: detector
     element: yolodetect

@@ -56,13 +56,15 @@ def load_catalog(config_path):
             raise ValueError(f"{config_path}: {name!r} needs kind, element, and metadata text")
         path_key = "models-dir" if kind == "tracker" else "model-path"
         model_path = settings.get(path_key)
-        if not isinstance(model_path, str) or not model_path:
+        if kind == "detector" and (not isinstance(model_path, str) or not model_path):
             raise ValueError(f"{config_path}: {name!r} needs {path_key}")
-        model_path = Path(model_path)
+        if model_path is not None and (not isinstance(model_path, str) or not model_path):
+            raise ValueError(f"{config_path}: {name!r} has invalid {path_key}")
+        model_path = Path(model_path) if model_path else None
         resolved_trackers[name] = {
             "kind": kind,
             "element": element,
-            "model_path": (config_path.parent / model_path).resolve() if not model_path.is_absolute() else model_path,
+            "model_path": ((config_path.parent / model_path).resolve() if not model_path.is_absolute() else model_path) if model_path else None,
             "metadata": metadata,
             "roi_type": settings.get("roi-type", metadata),
         }
@@ -256,7 +258,9 @@ class BenchmarkApp:
         else:
             raise ValueError(f"Missing source: {source_path}")
         if self.tracker_config["kind"] == "tracker":
-            processor = f"{self.tracker_config['element']} name=tracker enabled=false models-dir={gst_string(self.tracker_config['model_path'])}"
+            processor = f"{self.tracker_config['element']} name=tracker enabled=false"
+            if self.tracker_config["model_path"]:
+                processor += f" models-dir={gst_string(self.tracker_config['model_path'])}"
         else:
             processor = f"{self.tracker_config['element']} name=tracker model-path={gst_string(self.tracker_config['model_path'])}"
         description = f"{source} ! {output_caps} ! {processor} ! appsink name=sink sync=true max-buffers=1 drop=true"
@@ -454,7 +458,7 @@ def main():
             for path in videos.values():
                 validate_source(path)
             for tracker in trackers.values():
-                if not tracker["model_path"].exists():
+                if tracker["model_path"] and not tracker["model_path"].exists():
                     raise ValueError(f"Missing model: {tracker['model_path']}")
         except ValueError as error:
             print(error, file=sys.stderr)
@@ -463,7 +467,7 @@ def main():
         return 0
 
     root_dir = Path(__file__).resolve().parents[1]
-    plugin_dirs = (root_dir / "build-cpunanotracker", root_dir / "build-cpulighttrack", root_dir / "build/src/yolodetect")
+    plugin_dirs = (root_dir / "build-cpunanotracker", root_dir / "build-cpulighttrack", root_dir / "build-cpulktracker", root_dir / "build/src/yolodetect")
     existing = os.environ.get("GST_PLUGIN_PATH")
     os.environ["GST_PLUGIN_PATH"] = ":".join(str(path) for path in plugin_dirs) + (f":{existing}" if existing else "")
     Gst.init(None)
