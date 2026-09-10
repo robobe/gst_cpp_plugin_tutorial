@@ -174,3 +174,6 @@ See [docs/live-source-plugin.md](docs/live-source-plugin.md) for the live source
 
 See [docs/opencv-gray-filter.md](docs/opencv-gray-filter.md) for the OpenCV
 buffer mapping example.
+
+# TO READ
+- [pytracking](https://github.com/visionml/pytracking)

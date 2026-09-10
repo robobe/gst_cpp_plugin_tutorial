@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Interactively benchmark cpunanotrack on a video from a YAML catalog."""
+"""Interactively benchmark configured GStreamer trackers on a video catalog."""
 
 import argparse
 import os
@@ -21,15 +21,13 @@ gi.require_version("GstVideo", "1.0")
 from gi.repository import GLib, Gst, GstVideo
 
 
-WINDOW_TITLE = "CPU NanoTrack benchmark"
-NANOTRACK_ID = GLib.quark_from_string("nanotrack")
-ROI_META_ID = 0
+WINDOW_TITLE = "Tracker benchmark"
 LOST_CONFIDENCE = 0.50
 FPS_CHOICES = ("Auto", "1", "5", "10", "20", "30")
 IMAGE_SEQUENCE = re.compile(r"^(.*?)(\d+)(\.(?:jpg|jpeg|png))$", re.IGNORECASE)
 
 
-def load_videos(config_path):
+def load_catalog(config_path):
     try:
         data = yaml.safe_load(config_path.read_text()) or {}
     except (OSError, yaml.YAMLError) as error:
@@ -45,7 +43,23 @@ def load_videos(config_path):
             raise ValueError(f"{config_path}: every video name and path must be non-empty text")
         video_path = Path(path)
         resolved[name] = (config_path.parent / video_path).resolve() if not video_path.is_absolute() else video_path
-    return resolved
+    trackers = data.get("trackers")
+    if not isinstance(trackers, dict) or not trackers:
+        raise ValueError(f"{config_path}: trackers must be a non-empty name-to-settings mapping")
+    resolved_trackers = {}
+    for name, settings in trackers.items():
+        if not isinstance(name, str) or not name or not isinstance(settings, dict):
+            raise ValueError(f"{config_path}: every tracker must have a non-empty name and settings")
+        element, models_dir, metadata = (settings.get(key) for key in ("element", "models-dir", "metadata"))
+        if not all(isinstance(value, str) and value for value in (element, models_dir, metadata)):
+            raise ValueError(f"{config_path}: tracker {name!r} needs element, models-dir, and metadata text")
+        model_path = Path(models_dir)
+        resolved_trackers[name] = {
+            "element": element,
+            "models_dir": (config_path.parent / model_path).resolve() if not model_path.is_absolute() else model_path,
+            "metadata": metadata,
+        }
+    return resolved, resolved_trackers
 
 
 def gst_string(value):
@@ -103,11 +117,12 @@ def frame_from_sample(sample):
         buffer.unmap(mapped)
 
 
-def tracking_result(buffer):
-    meta = GstVideo.buffer_get_video_region_of_interest_meta_id(buffer, ROI_META_ID)
-    if meta is None or meta.roi_type != NANOTRACK_ID:
+def tracking_result(buffer, metadata):
+    metadata_id = GLib.quark_from_string(metadata)
+    meta = GstVideo.buffer_get_video_region_of_interest_meta_id(buffer, 0)
+    if meta is None or meta.roi_type != metadata_id:
         return None
-    params = meta.get_param("nanotrack")
+    params = meta.get_param(metadata)
     if params is None:
         return None
     initialized = bool(params.get_value("initialized"))
@@ -116,8 +131,9 @@ def tracking_result(buffer):
 
 
 class BenchmarkApp:
-    def __init__(self, videos, root_dir):
+    def __init__(self, videos, trackers, root_dir):
         self.videos = videos
+        self.trackers = trackers
         self.root_dir = root_dir
         self.pipeline = None
         self.sink = None
@@ -130,9 +146,10 @@ class BenchmarkApp:
         self.reset_statistics()
 
         self.root = tk.Tk()
-        self.root.title("CPU NanoTrack benchmark")
+        self.root.title(WINDOW_TITLE)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.selected = tk.StringVar(value=next(iter(videos)))
+        self.selected_tracker = tk.StringVar(value=next(iter(trackers)))
         self.status = tk.StringVar(value="Choose a video and load its first frame")
 
         main = ttk.Frame(self.root, padding=12)
@@ -140,19 +157,23 @@ class BenchmarkApp:
         ttk.Label(main, text="Source").grid(row=0, column=0, sticky="w")
         self.combo = ttk.Combobox(main, textvariable=self.selected, values=list(videos), state="readonly", width=28)
         self.combo.grid(row=0, column=1, sticky="ew", padx=(8, 0))
-        self.fps = tk.StringVar(value="Auto")
-        ttk.Label(main, text="Playback FPS").grid(row=1, column=0, sticky="w")
-        ttk.Combobox(main, textvariable=self.fps, values=FPS_CHOICES, state="readonly", width=28).grid(
+        ttk.Label(main, text="Tracker").grid(row=1, column=0, sticky="w")
+        ttk.Combobox(main, textvariable=self.selected_tracker, values=list(trackers), state="readonly", width=28).grid(
             row=1, column=1, sticky="ew", padx=(8, 0)
         )
-        ttk.Button(main, text="Load selected", command=self.load_video).grid(row=2, column=0, sticky="ew", pady=(8, 4))
-        ttk.Button(main, text="Browse file", command=self.browse_file).grid(row=2, column=1, sticky="ew", padx=(8, 0), pady=(8, 4))
-        ttk.Button(main, text="Browse folder", command=self.browse_folder).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(4, 4))
+        self.fps = tk.StringVar(value="Auto")
+        ttk.Label(main, text="Playback FPS").grid(row=2, column=0, sticky="w")
+        ttk.Combobox(main, textvariable=self.fps, values=FPS_CHOICES, state="readonly", width=28).grid(
+            row=2, column=1, sticky="ew", padx=(8, 0)
+        )
+        ttk.Button(main, text="Load selected", command=self.load_video).grid(row=3, column=0, sticky="ew", pady=(8, 4))
+        ttk.Button(main, text="Browse file", command=self.browse_file).grid(row=3, column=1, sticky="ew", padx=(8, 0), pady=(8, 4))
+        ttk.Button(main, text="Browse folder", command=self.browse_folder).grid(row=4, column=0, columnspan=2, sticky="ew", pady=(4, 4))
         self.play_button = ttk.Button(main, text="Play", command=self.toggle_pause, state="disabled")
-        self.play_button.grid(row=4, column=0, sticky="ew", pady=(4, 4))
+        self.play_button.grid(row=5, column=0, sticky="ew", pady=(4, 4))
         self.roi_button = ttk.Button(main, text="Select ROI", command=self.select_roi, state="disabled")
-        self.roi_button.grid(row=4, column=1, sticky="ew", padx=(8, 0), pady=(4, 4))
-        ttk.Label(main, textvariable=self.status, wraplength=300).grid(row=5, column=0, columnspan=2, sticky="w")
+        self.roi_button.grid(row=5, column=1, sticky="ew", padx=(8, 0), pady=(4, 4))
+        ttk.Label(main, textvariable=self.status, wraplength=300).grid(row=6, column=0, columnspan=2, sticky="w")
         main.columnconfigure(1, weight=1)
 
     def update_controls(self):
@@ -186,7 +207,8 @@ class BenchmarkApp:
         )
 
     def build_pipeline(self, source_path):
-        models = gst_string(self.root_dir / "demos/nanotracker/onnx")
+        self.tracker_config = self.trackers[self.selected_tracker.get()]
+        models = gst_string(self.tracker_config["models_dir"])
         fps = self.fps.get()
         output_caps = "video/x-raw,format=BGR,interlace-mode=progressive"
         if source_path.is_file():
@@ -207,7 +229,7 @@ class BenchmarkApp:
             raise ValueError(f"Missing source: {source_path}")
         description = (
             f"{source} ! {output_caps} ! "
-            f"cpunanotrack name=tracker enabled=false models-dir={models} ! "
+            f"{self.tracker_config['element']} name=tracker enabled=false models-dir={models} ! "
             f"appsink name=sink sync=true max-buffers=1 drop=true"
         )
         self.pipeline = Gst.parse_launch(description)
@@ -276,7 +298,7 @@ class BenchmarkApp:
 
     def show_frame(self, sample):
         frame = frame_from_sample(sample)
-        result = tracking_result(sample.get_buffer())
+        result = tracking_result(sample.get_buffer(), self.tracker_config["metadata"])
         now = time.monotonic()
         self.frame_times.append(now)
         while self.frame_times and now - self.frame_times[0] > 1.0:
@@ -375,7 +397,7 @@ class BenchmarkApp:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Interactive cpunanotrack benchmark viewer")
+    parser = argparse.ArgumentParser(description="Interactive GStreamer tracker benchmark viewer")
     parser.add_argument("--config", type=Path, default=Path(__file__).with_name("cpunanotracker_benchmark.yaml"))
     parser.add_argument("--check-config", action="store_true", help="Validate the YAML catalog without opening windows")
     return parser.parse_args()
@@ -385,7 +407,7 @@ def main():
     args = parse_args()
     config_path = args.config.resolve()
     try:
-        videos = load_videos(config_path)
+        videos, trackers = load_catalog(config_path)
     except ValueError as error:
         print(error, file=sys.stderr)
         return 1
@@ -394,18 +416,21 @@ def main():
         try:
             for path in videos.values():
                 validate_source(path)
+            for tracker in trackers.values():
+                if not tracker["models_dir"].is_dir():
+                    raise ValueError(f"Missing tracker models: {tracker['models_dir']}")
         except ValueError as error:
             print(error, file=sys.stderr)
             return 1
-        print(f"Valid catalog: {len(videos)} source(s)")
+        print(f"Valid catalog: {len(videos)} source(s), {len(trackers)} tracker(s)")
         return 0
 
     root_dir = Path(__file__).resolve().parents[1]
-    plugin_dir = root_dir / "build-cpunanotracker"
+    plugin_dirs = (root_dir / "build-cpunanotracker", root_dir / "build-cpulighttrack")
     existing = os.environ.get("GST_PLUGIN_PATH")
-    os.environ["GST_PLUGIN_PATH"] = str(plugin_dir) + (f":{existing}" if existing else "")
+    os.environ["GST_PLUGIN_PATH"] = ":".join(str(path) for path in plugin_dirs) + (f":{existing}" if existing else "")
     Gst.init(None)
-    BenchmarkApp(videos, root_dir).run()
+    BenchmarkApp(videos, trackers, root_dir).run()
     return 0
 
 

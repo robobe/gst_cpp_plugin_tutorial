@@ -1,3 +1,13 @@
 videos:
   camera-run: ../assets/camera_run_2s_10s.mp4
   detection-demo: ../assets/detection-demo.mp4
+
+trackers:
+  CPU NanoTrack:
+    element: cpunanotrack
+    models-dir: ../demos/nanotracker/onnx
+    metadata: nanotrack
+  CPU LightTrack:
+    element: cpulighttrack
+    models-dir: ../demos/lighttrack/onnx
+    metadata: lighttrack

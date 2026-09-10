@@ -1,8 +1,8 @@
-# CPU NanoTrack benchmark viewer
+# GStreamer tracker benchmark viewer
 
 The viewer loads configured video files or numbered image-sequence folders as
 a player. It pauses on the first frame, lets you play without tracking, and
-lets you pause later to select an ROI. It displays the CPU NanoTrack rectangle,
+lets you pause later to select an ROI. It displays the selected tracker rectangle,
 confidence, and playback FPS.
 
 Build the tracker first from the repository root:
@@ -10,6 +10,8 @@ Build the tracker first from the repository root:
 ```bash
 cmake -S src/cpunanotracker -B build-cpunanotracker -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build-cpunanotracker
+cmake -S src/cpulighttrack -B build-cpulighttrack -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-cpulighttrack
 python3 apps/run_cpunanotracker_benchmark.py
 ```
 
@@ -20,6 +22,15 @@ The source combo box is populated from
 videos:
   camera-run: ../assets/camera_run_2s_10s.mp4
   detection-demo: ../assets/detection-demo.mp4
+trackers:
+  CPU NanoTrack:
+    element: cpunanotrack
+    models-dir: ../demos/nanotracker/onnx
+    metadata: nanotrack
+  CPU LightTrack:
+    element: cpulighttrack
+    models-dir: ../demos/lighttrack/onnx
+    metadata: lighttrack
 ```
 
 Paths are relative to the YAML file. A path may be a video file or a folder
@@ -32,6 +43,8 @@ name pattern with no missing indexes. Use another catalog with
 Choose **Auto**, **1**, **5**, **10**, **20**, or **30** from **Playback FPS**
 before loading. Auto preserves a video file's source timing and plays image
 sequences at 20 FPS. A selected number sets the playback rate for either type.
+Choose a tracker before loading: the player builds its pipeline using that
+tracker's `element`, `models-dir`, and ROI `metadata` configuration.
 
 Click **Load selected** to load the chosen YAML entry. **Browse file** loads a
 video outside the catalog; **Browse folder** loads an image sequence outside
